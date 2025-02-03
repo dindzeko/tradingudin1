@@ -3,22 +3,21 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta
 
-# Fungsi untuk membaca data dari Google Spreadsheet (tanpa API)
-def load_google_sheet(sheet_url):
+# Fungsi untuk membaca data dari Google Drive (file Excel)
+def load_google_drive_excel(file_url):
     try:
-        # Ubah URL menjadi format CSV
-        csv_url = sheet_url.replace("/edit?usp=sharing", "/gviz/tq?tqx=out:csv")
-        df = pd.read_csv(
-            csv_url,
-            on_bad_lines='skip',  # Lewati baris yang bermasalah
-            encoding='utf-8'      # Pastikan encoding benar
-        )
+        # Ubah URL Google Drive menjadi URL unduhan langsung
+        file_id = file_url.split("/d/")[1].split("/")[0]
+        download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+        
+        # Baca file Excel menggunakan pandas
+        df = pd.read_excel(download_url)
         if 'Ticker' not in df.columns:
-            st.error("The 'Ticker' column is missing in the Google Sheet.")
+            st.error("The 'Ticker' column is missing in the Excel file.")
             return None
         return df
     except Exception as e:
-        st.error(f"Error loading Google Sheet: {e}")
+        st.error(f"Error loading Excel file from Google Drive: {e}")
         return None
 
 # Fungsi untuk mengambil data saham
@@ -56,12 +55,12 @@ def detect_pattern(data):
 def main():
     st.title("Stock Screening - 4 Candle Pattern")
     
-    # URL Google Spreadsheet
-    sheet_url = "https://docs.google.com/spreadsheets/d/1daPWAAPAlPzKxlG9Hf8nL01OnlnrX_ICFlWzMosnZW0/edit?gid=2116843523#gid=2116843523"
+    # URL file Excel di Google Drive
+    file_url = "https://docs.google.com/spreadsheets/d/1IeVg6b7UJVE4F8CAtS826YJ11NjYUYty/edit?usp=drive_link&ouid=106044501644618784207&rtpof=true&sd=true"
     
-    # Load data dari Google Spreadsheet
-    st.info("Loading data from Google Spreadsheet...")
-    df = load_google_sheet(sheet_url)
+    # Load data dari Google Drive
+    st.info("Loading data from Google Drive...")
+    df = load_google_drive_excel(file_url)
     if df is None or 'Ticker' not in df.columns:
         st.error("Failed to load data or 'Ticker' column is missing.")
         return
