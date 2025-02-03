@@ -8,7 +8,11 @@ def load_google_sheet(sheet_url):
     try:
         # Ubah URL menjadi format CSV
         csv_url = sheet_url.replace("/edit?usp=sharing", "/gviz/tq?tqx=out:csv")
-        df = pd.read_csv(csv_url)
+        df = pd.read_csv(
+            csv_url,
+            on_bad_lines='skip',  # Lewati baris yang bermasalah
+            encoding='utf-8'      # Pastikan encoding benar
+        )
         if 'Ticker' not in df.columns:
             st.error("The 'Ticker' column is missing in the Google Sheet.")
             return None
