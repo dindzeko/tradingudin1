@@ -1,2 +1,4 @@
-streamlit
+tkinter
 pandas
+yfinance
+datetime
