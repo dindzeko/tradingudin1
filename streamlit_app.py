@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Fungsi untuk membaca data dari Google Drive (file Excel)
 def load_google_drive_excel(file_url):
@@ -32,89 +32,22 @@ def load_google_drive_excel(file_url):
         st.error(f"Error loading Excel file from Google Drive: {e}")
         return None
 
-# Main function
-def main():
-    st.title("Stock Screening - 4 Candle Pattern")
-    
-    # URL file Excel di Google Drive
-    file_url = "https://docs.google.com/spreadsheets/d/1IeVg6b7UJVE4F8CAtS826YJ11NjYUYty/edit?usp=drive_link&ouid=106044501644618784207&rtpof=true&sd=true"
-    
-    # Load data dari Google Drive
-    st.info("Loading data from Google Drive...")
-    df = load_google_drive_excel(file_url)
-    
-    # Jika file gagal dibaca, hentikan eksekusi
-    if df is None or 'Ticker' not in df.columns:
-        st.error("Failed to load data or 'Ticker' column is missing.")
-        return
-    
-    # Lanjutkan ke analisis jika file berhasil dibaca
-    tickers = df['Ticker'].tolist()
-    total_tickers = len(tickers)
-    
-    # Date input
-    analysis_date = st.date_input("Analysis Date", value=datetime.today())
-    local_timezone = datetime.now().astimezone().tzinfo
-    analysis_date = datetime.combine(analysis_date, datetime.min.time()).replace(tzinfo=local_timezone)
-    
-    # Ambil data 10 hari terakhir untuk memastikan mendapatkan 4 hari perdagangan aktif
-    start_date = analysis_date - timedelta(days=10)
-    end_date = analysis_date
-    
-    # Analyze button
-    if st.button("Analyze Stocks"):
-        results = []
-        progress_bar = st.progress(0)
-        progress_text = st.empty()  # Placeholder untuk menampilkan persentase
-        
-        for i, ticker in enumerate(tickers):
-            # Periksa validitas ticker
-            if not ticker.endswith(".JK"):
-                st.warning(f"Invalid ticker format for {ticker}. Skipping...")
-                continue
-            
-            # Ambil data saham
-            data = get_stock_data(ticker, start_date, end_date)
-            if data is not None and not data.empty:
-                # Ambil 4 hari perdagangan terakhir
-                last_4_days_data = data.tail(4)
-                
-                # Debugging: Tampilkan data yang diterima
-                st.write(f"Data for {ticker}:")
-                st.write(last_4_days_data)
-                
-                if detect_pattern(last_4_days_data):
-                    results.append(ticker)
-            
-            # Hitung persentase kemajuan
-            progress = (i + 1) / total_tickers
-            progress_bar.progress(progress)
-            progress_text.text(f"Progress: {int(progress * 100)}%")  # Tampilkan persentase
-        
-        # Display results
-        if results:
-            st.subheader("Results")
-            st.dataframe(pd.DataFrame(results, columns=["Ticker"]))
-        else:
-            st.info("No stocks match the pattern.")
-
 # Fungsi untuk mengambil data saham
-def get_stock_data(ticker, start_date, end_date):
+def get_stock_data(ticker):
     try:
         stock = yf.Ticker(f"{ticker}.JK")
         
-        # Format tanggal menjadi MM-DD-YYYY untuk yfinance
-        start_date_str = start_date.strftime('%m-%d-%Y')
-        end_date_str = end_date.strftime('%m-%d-%Y')
+        # Ambil data historis untuk 10 hari terakhir
+        data = stock.history(period="10d")  # Menggunakan period alih-alih start dan end
         
-        # Debugging: Tampilkan rentang tanggal
-        st.write(f"Fetching data for {ticker} from {start_date_str} to {end_date_str}")
-        
-        # Ambil data historis
-        data = stock.history(start=start_date_str, end=end_date_str)
         if data.empty:
-            st.warning(f"No data found for {ticker} in the given date range.")
+            st.warning(f"No data found for {ticker} in the last 10 days.")
             return None
+        
+        # Debugging: Tampilkan data yang diterima
+        st.write(f"Data for {ticker}:")
+        st.write(data)
+        
         return data
     except Exception as e:
         st.error(f"Error fetching data for {ticker}: {str(e)}")
@@ -135,6 +68,59 @@ def detect_pattern(data):
             return True
     
     return False
+
+# Main function
+def main():
+    st.title("Stock Screening - 4 Candle Pattern")
+    
+    # URL file Excel di Google Drive
+    file_url = "https://docs.google.com/spreadsheets/d/1IeVg6b7UJVE4F8CAtS826YJ11NjYUYty/edit?usp=drive_link&ouid=106044501644618784207&rtpof=true&sd=true"
+    
+    # Load data dari Google Drive
+    st.info("Loading data from Google Drive...")
+    df = load_google_drive_excel(file_url)
+    
+    # Jika file gagal dibaca, hentikan eksekusi
+    if df is None or 'Ticker' not in df.columns:
+        st.error("Failed to load data or 'Ticker' column is missing.")
+        return
+    
+    # Lanjutkan ke analisis jika file berhasil dibaca
+    tickers = df['Ticker'].tolist()
+    total_tickers = len(tickers)
+    
+    # Analyze button
+    if st.button("Analyze Stocks"):
+        results = []
+        progress_bar = st.progress(0)
+        progress_text = st.empty()  # Placeholder untuk menampilkan persentase
+        
+        for i, ticker in enumerate(tickers):
+            # Periksa validitas ticker
+            if not ticker.endswith(".JK"):
+                st.warning(f"Invalid ticker format for {ticker}. Skipping...")
+                continue
+            
+            # Ambil data saham
+            data = get_stock_data(ticker)
+            if data is not None and not data.empty:
+                # Ambil 4 hari perdagangan terakhir
+                last_4_days_data = data.tail(4)
+                
+                if detect_pattern(last_4_days_data):
+                    results.append(ticker)
+            
+            # Hitung persentase kemajuan
+            progress = (i + 1) / total_tickers
+            progress_bar.progress(progress)
+            progress_text.text(f"Progress: {int(progress * 100)}%")  # Tampilkan persentase
+        
+        # Display results
+        if results:
+            st.subheader("Results")
+            st.dataframe(pd.DataFrame(results, columns=["Ticker"]))
+        else:
+            st.info("No stocks match the pattern.")
 
 if __name__ == "__main__":
     main()
