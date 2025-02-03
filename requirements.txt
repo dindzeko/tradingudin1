@@ -3,4 +3,3 @@ pandas
 yfinance
 datetime
 openpyxl
-pandas_market_calendars
