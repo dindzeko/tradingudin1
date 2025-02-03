@@ -12,14 +12,22 @@ def load_google_drive_excel(file_url):
         
         # Baca file Excel menggunakan pandas dengan engine openpyxl
         df = pd.read_excel(download_url, engine='openpyxl')
+        
+        # Periksa apakah kolom 'Ticker' ada di file Excel
         if 'Ticker' not in df.columns:
             st.error("The 'Ticker' column is missing in the Excel file.")
             return None
+        
+        # Informasi keberhasilan pembacaan file
+        st.success(f"Successfully loaded data from Google Drive!")
+        st.info(f"Number of rows read: {len(df)}")
+        st.info(f"Columns in the Excel file: {', '.join(df.columns)}")
+        
         return df
     except Exception as e:
         st.error(f"Error loading Excel file from Google Drive: {e}")
         return None
-
+        
 # Fungsi untuk mengambil data saham
 def get_stock_data(ticker, start_date, end_date):
     try:
