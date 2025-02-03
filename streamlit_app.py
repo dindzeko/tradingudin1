@@ -77,7 +77,7 @@ def detect_pattern(data):
 
 # Main function
 def main():
-    st.title("Stock Screening - 4 Candle Pattern")
+    st.title("Stock Screening - 4 Candle ")
     
     # URL file Excel di Google Drive
     file_url = "https://docs.google.com/spreadsheets/d/1t6wgBIcPEUWMq40GdIH1GtZ8dvI9PZ2v/edit?usp=drive_link&ouid=106044501644618784207&rtpof=true&sd=true"
