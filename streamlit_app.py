@@ -24,12 +24,15 @@ def load_google_drive_excel(file_url):
 def get_stock_data(ticker, start_date, end_date):
     try:
         stock = yf.Ticker(f"{ticker}.JK")
-        start_date_str = start_date.strftime('%Y-%m-%d')
-        end_date_str = end_date.strftime('%Y-%m-%d')
+        
+        # Format tanggal menjadi MM-DD-YYYY untuk yfinance
+        start_date_str = start_date.strftime('%m-%d-%Y')
+        end_date_str = end_date.strftime('%m-%d-%Y')
         
         # Debugging: Tampilkan rentang tanggal
         st.write(f"Fetching data for {ticker} from {start_date_str} to {end_date_str}")
         
+        # Ambil data historis
         data = stock.history(start=start_date_str, end=end_date_str)
         if data.empty:
             st.warning(f"No data found for {ticker} in the given date range.")
