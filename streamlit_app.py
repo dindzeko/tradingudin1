@@ -111,7 +111,7 @@ def main():
                     results.append({
                         "Ticker": ticker,
                         "Last Close": data['Close'][-1],
-                        "Pattern Detected": "Bullish Engulfing"
+                        "Pattern Detected": "unconfirmed Mathold"
                     })
             
             # Hitung persentase kemajuan
