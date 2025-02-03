@@ -10,8 +10,8 @@ def load_google_drive_excel(file_url):
         file_id = file_url.split("/d/")[1].split("/")[0]
         download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
         
-        # Baca file Excel menggunakan pandas
-        df = pd.read_excel(download_url)
+        # Baca file Excel menggunakan pandas dengan engine openpyxl
+        df = pd.read_excel(download_url, engine='openpyxl')
         if 'Ticker' not in df.columns:
             st.error("The 'Ticker' column is missing in the Excel file.")
             return None
@@ -66,6 +66,7 @@ def main():
         return
     
     tickers = df['Ticker'].tolist()
+    total_tickers = len(tickers)
     
     # Date input
     analysis_date = st.date_input("Analysis Date", value=datetime.today())
@@ -75,16 +76,19 @@ def main():
     # Analyze button
     if st.button("Analyze Stocks"):
         results = []
-        total_tickers = len(tickers)
         progress_bar = st.progress(0)
+        progress_text = st.empty()  # Placeholder untuk menampilkan persentase
         
         for i, ticker in enumerate(tickers):
             data = get_stock_data(ticker, start_date, end_date)
             if data is not None and not data.empty:
                 if detect_pattern(data):
                     results.append(ticker)
-            # Update progress bar
-            progress_bar.progress((i + 1) / total_tickers)
+            
+            # Hitung persentase kemajuan
+            progress = (i + 1) / total_tickers
+            progress_bar.progress(progress)
+            progress_text.text(f"Progress: {int(progress * 100)}%")  # Tampilkan persentase
         
         # Display results
         if results:
