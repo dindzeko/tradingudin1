@@ -42,26 +42,26 @@ def detect_pattern(data):
         candle1 = data.iloc[-4]
         is_candle1_bullish = candle1['Close'] > candle1['Open']
         is_candle1_large_body = (candle1['Close'] - candle1['Open']) > 0.02 * candle1['Open']  # Body besar > 2%
-
+        
         # Candle 2: Bearish dan ditutup lebih rendah dari candle 1
         candle2 = data.iloc[-3]
         is_candle2_bearish = candle2['Close'] < candle2['Open']
         is_candle2_lower_than_candle1 = candle2['Close'] < candle1['Close']
-
+        
         # Candle 3: Bearish
         candle3 = data.iloc[-2]
         is_candle3_bearish = candle3['Close'] < candle3['Open']
-
+        
         # Candle 4: Bearish
         candle4 = data.iloc[-1]
         is_candle4_bearish = candle4['Close'] < candle4['Open']
-
+        
         # Pastikan pola muncul di tren naik (harga candle 4 lebih rendah dari candle 1)
         is_uptrend = candle4['Close'] < candle1['Close']
-
+        
         # Pastikan close candle 2 > close candle 3 > close candle 4
         is_close_sequence = candle2['Close'] > candle3['Close'] > candle4['Close']
-
+        
         # Semua kondisi harus terpenuhi
         return (
             is_candle1_bullish and
@@ -74,42 +74,6 @@ def detect_pattern(data):
             is_close_sequence
         )
     return False
-
-# Fungsi untuk melakukan analisis
-def analyze_stocks():
-    tickers = upload_file()
-    if not tickers:
-        return
-
-    analysis_date = entry_date.get()
-    try:
-        analysis_date = datetime.strptime(analysis_date, "%Y-%m-%d")
-        start_date = analysis_date - timedelta(days=4)
-        end_date = analysis_date
-
-        # Pastikan tanggal tidak lebih dari hari ini
-        if end_date > datetime.today():
-            messagebox.showerror("Error", "Analysis date cannot be in the future.")
-            return
-
-        results = []
-        total_tickers = len(tickers)
-        progress_bar['maximum'] = total_tickers
-        progress_bar['value'] = 0
-        progress_label.config(text="0%")
-
-        for i, ticker in enumerate(tickers):
-            data = get_stock_data(ticker, start_date, end_date)
-            if data is not None and not data.empty:
-                print(f"Data for {ticker}:")
-                print(data[['Open', 'High', 'Low', 'Close']])
-                if detect_pattern(data):
-                    results.append(ticker)
-                    print(f"{ticker} matches the pattern.")
-                else:
-                    print(f"{ticker} does not match the pattern.")
-            else:
-                print(f"No data available for {ticker}.")
 
 # Main function
 def main():
