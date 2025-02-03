@@ -56,7 +56,7 @@ def main():
     st.title("Stock Screening - 4 Candle Pattern")
     
     # URL file Excel di Google Drive
-    file_url = "https://docs.google.com/spreadsheets/d/1IeVg6b7UJVE4F8CAtS826YJ11NjYUYty/edit?usp=drive_link&ouid=106044501644618784207&rtpof=true&sd=true"
+    file_url = "https://docs.google.com/spreadsheets/d/1t6wgBIcPEUWMq40GdIH1GtZ8dvI9PZ2v/edit?usp=drive_link&ouid=106044501644618784207&rtpof=true&sd=true"
     
     # Load data dari Google Drive
     st.info("Loading data from Google Drive...")
