@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta
+import pandas_market_calendars as mcal
 
 # Fungsi untuk membaca data dari Google Drive (file Excel)
 def load_google_drive_excel(file_url):
@@ -26,6 +27,10 @@ def get_stock_data(ticker, start_date, end_date):
         stock = yf.Ticker(f"{ticker}.JK")
         start_date_str = start_date.strftime('%Y-%m-%d')
         end_date_str = end_date.strftime('%Y-%m-%d')
+        
+        # Debugging: Tampilkan rentang tanggal
+        st.write(f"Fetching data for {ticker} from {start_date_str} to {end_date_str}")
+        
         data = stock.history(start=start_date_str, end=end_date_str)
         if data.empty:
             st.warning(f"No data found for {ticker} in the given date range.")
@@ -70,8 +75,22 @@ def main():
     
     # Date input
     analysis_date = st.date_input("Analysis Date", value=datetime.today())
-    start_date = analysis_date - timedelta(days=4)
-    end_date = analysis_date
+    local_timezone = datetime.now().astimezone().tzinfo
+    analysis_date = datetime.combine(analysis_date, datetime.min.time()).replace(tzinfo=local_timezone)
+    
+    # Gunakan kalender perdagangan IDX (Indonesia Stock Exchange)
+    idx_calendar = mcal.get_calendar('IDX')
+    trading_days = idx_calendar.valid_days(start_date=analysis_date - timedelta(days=30), end_date=analysis_date)
+    
+    # Ambil 4 hari perdagangan terakhir
+    if len(trading_days) < 4:
+        st.error("Not enough trading days available in the last 30 days.")
+        return
+    start_date = trading_days[-4]  # Hari ke-4 terakhir
+    end_date = trading_days[-1]    # Hari terakhir
+    
+    # Debugging: Tampilkan rentang hari perdagangan
+    st.write(f"Trading days range: {start_date.date()} to {end_date.date()}")
     
     # Analyze button
     if st.button("Analyze Stocks"):
@@ -80,8 +99,17 @@ def main():
         progress_text = st.empty()  # Placeholder untuk menampilkan persentase
         
         for i, ticker in enumerate(tickers):
+            # Periksa validitas ticker
+            if not ticker.endswith(".JK"):
+                st.warning(f"Invalid ticker format for {ticker}. Skipping...")
+                continue
+            
             data = get_stock_data(ticker, start_date, end_date)
             if data is not None and not data.empty:
+                # Debugging: Tampilkan data yang diterima
+                st.write(f"Data for {ticker}:")
+                st.write(data.tail())
+                
                 if detect_pattern(data):
                     results.append(ticker)
             
