@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta
-import pandas_market_calendars as mcal
 
 # Fungsi untuk membaca data dari Google Drive (file Excel)
 def load_google_drive_excel(file_url):
@@ -78,19 +77,9 @@ def main():
     local_timezone = datetime.now().astimezone().tzinfo
     analysis_date = datetime.combine(analysis_date, datetime.min.time()).replace(tzinfo=local_timezone)
     
-    # Gunakan kalender perdagangan IDX (Indonesia Stock Exchange)
-    idx_calendar = mcal.get_calendar('IDX')
-    trading_days = idx_calendar.valid_days(start_date=analysis_date - timedelta(days=30), end_date=analysis_date)
-    
-    # Ambil 4 hari perdagangan terakhir
-    if len(trading_days) < 4:
-        st.error("Not enough trading days available in the last 30 days.")
-        return
-    start_date = trading_days[-4]  # Hari ke-4 terakhir
-    end_date = trading_days[-1]    # Hari terakhir
-    
-    # Debugging: Tampilkan rentang hari perdagangan
-    st.write(f"Trading days range: {start_date.date()} to {end_date.date()}")
+    # Ambil data 10 hari terakhir untuk memastikan mendapatkan 4 hari perdagangan aktif
+    start_date = analysis_date - timedelta(days=10)
+    end_date = analysis_date
     
     # Analyze button
     if st.button("Analyze Stocks"):
@@ -106,11 +95,14 @@ def main():
             
             data = get_stock_data(ticker, start_date, end_date)
             if data is not None and not data.empty:
+                # Ambil 4 hari perdagangan terakhir
+                last_4_days_data = data.tail(4)
+                
                 # Debugging: Tampilkan data yang diterima
                 st.write(f"Data for {ticker}:")
-                st.write(data.tail())
+                st.write(last_4_days_data)
                 
-                if detect_pattern(data):
+                if detect_pattern(last_4_days_data):
                     results.append(ticker)
             
             # Hitung persentase kemajuan
