@@ -27,7 +27,7 @@ def load_google_drive_excel(file_url):
     except Exception as e:
         st.error(f"Error loading Excel file from Google Drive: {e}")
         return None
-        
+
 # Fungsi untuk mengambil data saham
 def get_stock_data(ticker, start_date, end_date):
     try:
@@ -111,8 +111,17 @@ def main():
         progress_bar = st.progress(0)
         progress_text = st.empty()  # Placeholder untuk menampilkan persentase
         
+        # Variabel untuk menyimpan data BBCA
+        bbc_data = None
+        
         for i, ticker in enumerate(tickers):
             data = get_stock_data(ticker, start_date, end_date)
+            
+            # Debugging untuk ticker BBCA
+            if ticker == "BBCA":
+                if data is not None and not data.empty:
+                    bbc_data = data  # Simpan data BBCA
+                    
             if data is not None and not data.empty:
                 if detect_pattern(data):
                     # Simpan hasil saham yang memenuhi kriteria
@@ -134,6 +143,14 @@ def main():
             st.dataframe(results_df)
         else:
             st.info("No stocks match the pattern.")
+        
+        # Bagian terpisah untuk menampilkan data BBCA
+        st.subheader("Separate Result for BBCA")
+        if bbc_data is not None and not bbc_data.empty:
+            st.write("Data Retrieved for BBCA:")
+            st.dataframe(bbc_data)  # Menampilkan data BBCA dalam bagian terpisah
+        else:
+            st.warning("No data retrieved for BBCA.")
 
 if __name__ == "__main__":
     main()
