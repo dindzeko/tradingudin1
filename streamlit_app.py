@@ -29,15 +29,22 @@ def load_google_drive_excel(file_url):
         return None
 
 # Fungsi untuk mengambil data saham
-def get_stock_data(ticker, start_date, end_date):
+def get_stock_data(ticker, end_date):
     try:
         stock = yf.Ticker(f"{ticker}.JK")
+        # Ambil data selama 30 hari sebelum tanggal analisis untuk memastikan mendapatkan 4 data perdagangan
+        start_date = end_date - timedelta(days=30)
         start_date_str = start_date.strftime('%Y-%m-%d')
         end_date_str = end_date.strftime('%Y-%m-%d')
         data = stock.history(start=start_date_str, end=end_date_str)
-        if data.empty:
-            st.warning(f"No data found for {ticker} in the given date range.")
+        
+        # Filter hanya 4 data terakhir
+        if len(data) >= 4:
+            data = data.tail(4)
+        else:
+            st.warning(f"Not enough trading data for {ticker} in the given date range.")
             return None
+        
         return data
     except Exception as e:
         st.error(f"Error fetching data for {ticker}: {str(e)}")
@@ -45,23 +52,23 @@ def get_stock_data(ticker, start_date, end_date):
 
 # Fungsi untuk mendeteksi pola berdasarkan 4 candle
 def detect_pattern(data):
-    if len(data) >= 4:
+    if len(data) == 4:
         # Candle 1: Bullish dengan body besar
-        candle1 = data.iloc[-4]
+        candle1 = data.iloc[0]
         is_candle1_bullish = candle1['Close'] > candle1['Open']
         is_candle1_large_body = (candle1['Close'] - candle1['Open']) > 0.02 * candle1['Open']  # Body besar > 2%
         
         # Candle 2: Bearish dan ditutup lebih rendah dari candle 1
-        candle2 = data.iloc[-3]
+        candle2 = data.iloc[1]
         is_candle2_bearish = candle2['Close'] < candle2['Open']
         is_candle2_lower_than_candle1 = candle2['Close'] < candle1['Close']
         
         # Candle 3: Bearish
-        candle3 = data.iloc[-2]
+        candle3 = data.iloc[2]
         is_candle3_bearish = candle3['Close'] < candle3['Open']
         
         # Candle 4: Bearish
-        candle4 = data.iloc[-1]
+        candle4 = data.iloc[3]
         is_candle4_bearish = candle4['Close'] < candle4['Open']
         
         # Pastikan pola muncul di tren naik (harga candle 4 lebih rendah dari candle 1)
@@ -102,8 +109,6 @@ def main():
     
     # Date input
     analysis_date = st.date_input("Analysis Date", value=datetime.today())
-    start_date = analysis_date - timedelta(days=4)
-    end_date = analysis_date
     
     # Analyze button
     if st.button("Analyze Stocks"):
@@ -115,7 +120,7 @@ def main():
         bbc_data = None
         
         for i, ticker in enumerate(tickers):
-            data = get_stock_data(ticker, start_date, end_date)
+            data = get_stock_data(ticker, analysis_date)
             
             # Debugging untuk ticker BBCA
             if ticker == "BBCA":
