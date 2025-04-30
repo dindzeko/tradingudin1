@@ -34,7 +34,7 @@ def get_last_4_days_data(ticker, delay=0.5):
 
 # Contoh daftar ticker BEI (boleh ganti sesuai kebutuhan)
 tickers_to_fetch = [
-    'BBCA.JK', 'BBRI.JK', 'TLKM.JK', 'UNVR.JK',
+    'BBCA', 'BBRI', 'TLKM', 'UNVR',
     'ASII.JK', 'BMRI.JK', 'ADRO.JK', 'INDF.JK',
     'ICBP.JK', 'INCO.JK', 'PGAS.JK', 'KLBF.JK'
 ]
