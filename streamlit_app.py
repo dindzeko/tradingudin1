@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 import numpy as np
 from sklearn.linear_model import LinearRegression
 
-# Fungsi membaca Excel dari Google Drive
 def load_google_drive_excel(file_url):
     try:
         file_id = file_url.split("/d/")[1].split("/")[0]
@@ -24,7 +23,6 @@ def load_google_drive_excel(file_url):
         st.error(f"Gagal membaca file: {e}")
         return None
 
-# Fungsi mengambil data harga saham
 def get_stock_data(ticker, end_date):
     try:
         stock = yf.Ticker(f"{ticker}.JK")
@@ -35,7 +33,6 @@ def get_stock_data(ticker, end_date):
         st.error(f"Gagal mengambil data untuk {ticker}: {e}")
         return None
 
-# Fungsi mendeteksi pola 4 candle
 def detect_pattern(data):
     recent = data.tail(4)
     if recent.shape[0] != 4:
@@ -59,7 +56,6 @@ def detect_pattern(data):
         is_close_sequence
     ])
 
-# Fungsi RSI
 def compute_rsi(close, period=14):
     delta = close.diff()
     gain = delta.where(delta > 0, 0.0)
@@ -69,8 +65,6 @@ def compute_rsi(close, period=14):
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
     return rsi
-
-# Fungsi MFI
 
 def compute_mfi(df, period=14):
     typical_price = (df['High'] + df['Low'] + df['Close']) / 3
@@ -92,35 +86,9 @@ def compute_mfi(df, period=14):
     positive_mf = pd.Series(positive_flow).rolling(window=period).sum()
     negative_mf = pd.Series(negative_flow).rolling(window=period).sum()
     mfi = 100 - (100 / (1 + (positive_mf / negative_mf)))
-    mfi.index = df.index[1:]  # Sesuaikan index karena dimulai dari i=1
+    mfi.index = df.index[1:]
     return mfi
 
-# Fungsi ADX
-
-def compute_adx(df, period=14):
-    high = df['High']
-    low = df['Low']
-    close = df['Close']
-
-    plus_dm = high.diff()
-    minus_dm = low.diff()
-
-    plus_dm = np.where((plus_dm > minus_dm) & (plus_dm > 0), plus_dm, 0)
-    minus_dm = np.where((minus_dm > plus_dm) & (minus_dm > 0), minus_dm, 0)
-
-    tr1 = pd.DataFrame(high - low)
-    tr2 = pd.DataFrame(abs(high - close.shift(1)))
-    tr3 = pd.DataFrame(abs(low - close.shift(1)))
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-
-    atr = tr.rolling(window=period).mean()
-    plus_di = 100 * (pd.Series(plus_dm).rolling(window=period).mean() / atr)
-    minus_di = 100 * (pd.Series(minus_dm).rolling(window=period).mean() / atr)
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-    adx = dx.rolling(window=period).mean()
-    return adx
-
-# Fungsi interpretasi OBV berdasarkan tren 10 hari
 def interpret_obv(df):
     obv = [0]
     for i in range(1, len(df)):
@@ -148,14 +116,11 @@ def interpret_obv(df):
     else:
         return "⏸️ Netral"
 
-# Fungsi menghitung MA, RSI, Fibonacci, Volume Profile & OBV interpretasi
-
 def calculate_additional_metrics(data):
     df = data.copy()
     df['MA20'] = df['Close'].rolling(window=20).mean()
     df['RSI'] = compute_rsi(df['Close'], 14)
     df['MFI'] = compute_mfi(df, 14)
-    df['ADX'] = compute_adx(df, 14)
 
     last_20 = df.tail(20)
     high = last_20['High'].max()
@@ -188,14 +153,12 @@ def calculate_additional_metrics(data):
         "RSI": round(last_row['RSI'], 2) if not np.isnan(last_row['RSI']) else None,
         "MFI": round(df['MFI'].iloc[-1], 2) if not df['MFI'].isna().iloc[-1] else None,
         "Volume": int(last_row['Volume']) if not np.isnan(last_row['Volume']) else None,
-        "ADX": round(df['ADX'].iloc[-1], 2) if not df['ADX'].isna().iloc[-1] else None,
         "Volume_Anomali": vol_anomali,
         "Fibonacci_Levels": fib_levels,
         "Volume_Profile_Level": volume_support_resist,
         "OBV_Interpretation": obv_sentiment
     }
 
-# Main App
 def main():
     st.title("📊 Stock Screener - Semoga Cuan")
 
@@ -228,7 +191,6 @@ def main():
                         "MA20": metrics["MA20"],
                         "RSI": metrics["RSI"],
                         "MFI": metrics["MFI"],
-                        "ADX": metrics["ADX"],
                         "Vol Anomali": "🚨 Ya" if metrics["Volume_Anomali"] else "-",
                         "Volume": metrics["Volume"],
                         "OBV": metrics["OBV_Interpretation"],
