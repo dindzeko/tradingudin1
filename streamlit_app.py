@@ -197,7 +197,7 @@ def calculate_additional_metrics(data):
 
 # Main App
 def main():
-    st.title("📊 Stock Screener - Pola 4 Candle + MA20, RSI, OBV, Support & Resistance")
+    st.title("📊 Stock Screener - Semoga Cuan")
 
     file_url = "https://docs.google.com/spreadsheets/d/1t6wgBIcPEUWMq40GdIH1GtZ8dvI9PZ2v/edit?usp=drive_link"
     df = load_google_drive_excel(file_url)
