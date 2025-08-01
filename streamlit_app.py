@@ -3,6 +3,7 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta
 import numpy as np
+from sklearn.linear_model import LinearRegression
 
 # Fungsi membaca Excel dari Google Drive
 def load_google_drive_excel(file_url):
@@ -34,7 +35,7 @@ def get_stock_data(ticker, end_date):
         st.error(f"Gagal mengambil data untuk {ticker}: {e}")
         return None
 
-# Fungsi deteksi pola 4 candle
+# Fungsi mendeteksi pola 4 candle
 def detect_pattern(data):
     recent = data.tail(4)
     if recent.shape[0] != 4:
@@ -69,8 +70,33 @@ def compute_rsi(close, period=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
-# Fungsi OBV
-def compute_obv(df):
+# Fungsi MFI
+
+def compute_mfi(df, period=14):
+    typical_price = (df['High'] + df['Low'] + df['Close']) / 3
+    money_flow = typical_price * df['Volume']
+    positive_flow = []
+    negative_flow = []
+
+    for i in range(1, len(typical_price)):
+        if typical_price[i] > typical_price[i - 1]:
+            positive_flow.append(money_flow[i])
+            negative_flow.append(0)
+        elif typical_price[i] < typical_price[i - 1]:
+            positive_flow.append(0)
+            negative_flow.append(money_flow[i])
+        else:
+            positive_flow.append(0)
+            negative_flow.append(0)
+
+    positive_mf = pd.Series(positive_flow).rolling(window=period).sum()
+    negative_mf = pd.Series(negative_flow).rolling(window=period).sum()
+    mfi = 100 - (100 / (1 + (positive_mf / negative_mf)))
+    mfi.index = df.index[1:]  # Sesuaikan index karena dimulai dari i=1
+    return mfi
+
+# Fungsi interpretasi OBV berdasarkan tren 10 hari
+def interpret_obv(df):
     obv = [0]
     for i in range(1, len(df)):
         if df['Close'].iloc[i] > df['Close'].iloc[i - 1]:
@@ -80,24 +106,29 @@ def compute_obv(df):
         else:
             obv.append(obv[-1])
     df['OBV'] = obv
-    return df
 
-# Interpretasi OBV
-def interpret_obv(df):
-    if df['OBV'].iloc[-1] > df['OBV'].iloc[-2]:
-        return "Tekanan Beli"
-    elif df['OBV'].iloc[-1] < df['OBV'].iloc[-2]:
-        return "Tekanan Jual"
+    if len(df) < 10:
+        return "⏸️ Netral"
+
+    obv_last = df['OBV'].tail(10).values.reshape(-1, 1)
+    x = np.arange(len(obv_last)).reshape(-1, 1)
+
+    model = LinearRegression().fit(x, obv_last)
+    slope = model.coef_[0][0]
+
+    if slope > 1e6:
+        return "🔼 Tekanan Beli"
+    elif slope < -1e6:
+        return "🔽 Tekanan Jual"
     else:
-        return "Netral"
+        return "⏸️ Netral"
 
-# Fungsi menghitung metrik tambahan
+# Fungsi menghitung MA, RSI, Fibonacci, Volume Profile & OBV interpretasi
 def calculate_additional_metrics(data):
     df = data.copy()
     df['MA20'] = df['Close'].rolling(window=20).mean()
     df['RSI'] = compute_rsi(df['Close'], 14)
-    df = compute_obv(df)
-    obv_sentiment = interpret_obv(df)
+    df['MFI'] = compute_mfi(df, 14)
 
     last_20 = df.tail(20)
     high = last_20['High'].max()
@@ -115,22 +146,27 @@ def calculate_additional_metrics(data):
     df['Price_bin'] = pd.cut(df['Close'], bins)
     volume_profile = df.groupby('Price_bin')['Volume'].sum()
     most_volume_bin = volume_profile.idxmax()
-    volume_support_resist = round((most_volume_bin.left + most_volume_bin.right) / 2, 2)
+    bin_low = most_volume_bin.left
+    bin_high = most_volume_bin.right
+    volume_support_resist = round((bin_low + bin_high) / 2, 2)
+
+    obv_sentiment = interpret_obv(df)
 
     last_row = df.iloc[-1]
 
     return {
         "MA20": round(last_row['MA20'], 2) if not np.isnan(last_row['MA20']) else None,
         "RSI": round(last_row['RSI'], 2) if not np.isnan(last_row['RSI']) else None,
+        "MFI": round(df['MFI'].iloc[-1], 2) if not df['MFI'].isna().iloc[-1] else None,
         "Volume": int(last_row['Volume']) if not np.isnan(last_row['Volume']) else None,
         "Fibonacci_Levels": fib_levels,
         "Volume_Profile_Level": volume_support_resist,
-        "OBV_Sentiment": obv_sentiment
+        "OBV_Interpretation": obv_sentiment
     }
 
 # Main App
 def main():
-    st.title("📊 Stock Screener - Unconfirmed MatHold")
+    st.title("📊 Stock Screener - Pola 4 Candle + MA20, RSI, OBV, Support & Resistance")
 
     file_url = "https://docs.google.com/spreadsheets/d/1t6wgBIcPEUWMq40GdIH1GtZ8dvI9PZ2v/edit?usp=drive_link"
     df = load_google_drive_excel(file_url)
@@ -160,12 +196,13 @@ def main():
                         "Last Close": round(data['Close'].iloc[-1], 2),
                         "MA20": metrics["MA20"],
                         "RSI": metrics["RSI"],
-                        "OBV": metrics["OBV_Sentiment"],
+                        "MFI": metrics["MFI"],
                         "Volume": metrics["Volume"],
+                        "OBV": metrics["OBV_Interpretation"],
                         "Volume Profile": metrics["Volume_Profile_Level"],
                         "Fib 0.382": metrics["Fibonacci_Levels"]['Fib_0.382'],
                         "Fib 0.5": metrics["Fibonacci_Levels"]['Fib_0.5'],
-                        "Fib 0.618": metrics["Fibonacci_Levels"]['Fib_0.618'],
+                        "Fib 0.618": metrics["Fibonacci_Levels"]['Fib_0.618']
                     })
 
             progress = (i + 1) / len(tickers)
