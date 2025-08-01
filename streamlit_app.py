@@ -95,6 +95,31 @@ def compute_mfi(df, period=14):
     mfi.index = df.index[1:]  # Sesuaikan index karena dimulai dari i=1
     return mfi
 
+# Fungsi ADX
+
+def compute_adx(df, period=14):
+    high = df['High']
+    low = df['Low']
+    close = df['Close']
+
+    plus_dm = high.diff()
+    minus_dm = low.diff()
+
+    plus_dm = np.where((plus_dm > minus_dm) & (plus_dm > 0), plus_dm, 0)
+    minus_dm = np.where((minus_dm > plus_dm) & (minus_dm > 0), minus_dm, 0)
+
+    tr1 = pd.DataFrame(high - low)
+    tr2 = pd.DataFrame(abs(high - close.shift(1)))
+    tr3 = pd.DataFrame(abs(low - close.shift(1)))
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+    atr = tr.rolling(window=period).mean()
+    plus_di = 100 * (pd.Series(plus_dm).rolling(window=period).mean() / atr)
+    minus_di = 100 * (pd.Series(minus_dm).rolling(window=period).mean() / atr)
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
+    adx = dx.rolling(window=period).mean()
+    return adx
+
 # Fungsi interpretasi OBV berdasarkan tren 10 hari
 def interpret_obv(df):
     obv = [0]
@@ -124,11 +149,13 @@ def interpret_obv(df):
         return "⏸️ Netral"
 
 # Fungsi menghitung MA, RSI, Fibonacci, Volume Profile & OBV interpretasi
+
 def calculate_additional_metrics(data):
     df = data.copy()
     df['MA20'] = df['Close'].rolling(window=20).mean()
     df['RSI'] = compute_rsi(df['Close'], 14)
     df['MFI'] = compute_mfi(df, 14)
+    df['ADX'] = compute_adx(df, 14)
 
     last_20 = df.tail(20)
     high = last_20['High'].max()
@@ -151,6 +178,8 @@ def calculate_additional_metrics(data):
     volume_support_resist = round((bin_low + bin_high) / 2, 2)
 
     obv_sentiment = interpret_obv(df)
+    avg_volume = df['Volume'].rolling(window=20).mean()
+    vol_anomali = df['Volume'].iloc[-1] > 1.5 * avg_volume.iloc[-1]
 
     last_row = df.iloc[-1]
 
@@ -159,6 +188,8 @@ def calculate_additional_metrics(data):
         "RSI": round(last_row['RSI'], 2) if not np.isnan(last_row['RSI']) else None,
         "MFI": round(df['MFI'].iloc[-1], 2) if not df['MFI'].isna().iloc[-1] else None,
         "Volume": int(last_row['Volume']) if not np.isnan(last_row['Volume']) else None,
+        "ADX": round(df['ADX'].iloc[-1], 2) if not df['ADX'].isna().iloc[-1] else None,
+        "Volume_Anomali": vol_anomali,
         "Fibonacci_Levels": fib_levels,
         "Volume_Profile_Level": volume_support_resist,
         "OBV_Interpretation": obv_sentiment
@@ -197,6 +228,8 @@ def main():
                         "MA20": metrics["MA20"],
                         "RSI": metrics["RSI"],
                         "MFI": metrics["MFI"],
+                        "ADX": metrics["ADX"],
+                        "Vol Anomali": "🚨 Ya" if metrics["Volume_Anomali"] else "-",
                         "Volume": metrics["Volume"],
                         "OBV": metrics["OBV_Interpretation"],
                         "Volume Profile": metrics["Volume_Profile_Level"],
