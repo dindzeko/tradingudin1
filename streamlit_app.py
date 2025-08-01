@@ -12,7 +12,7 @@ def load_google_drive_excel(file_url):
         df = pd.read_excel(download_url, engine='openpyxl')
 
         if 'Ticker' not in df.columns or 'Papan Pencatatan' not in df.columns:
-            st.error("File harus memiliki kolom 'Ticker' dan 'Papan Pencatatan'.")
+            st.error("Kolom 'Ticker' dan 'Papan Pencatatan' harus ada di file Excel.")
             return None
 
         st.success("✅ Berhasil memuat data dari Google Drive!")
@@ -29,7 +29,6 @@ def get_stock_data(ticker, end_date):
         stock = yf.Ticker(f"{ticker}.JK")
         start_date = end_date - timedelta(days=60)
         data = stock.history(start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
-
         return data if not data.empty else None
     except Exception as e:
         st.error(f"Gagal mengambil data untuk {ticker}: {e}")
@@ -38,14 +37,10 @@ def get_stock_data(ticker, end_date):
 # Fungsi mendeteksi pola 4 candle
 def detect_pattern(data):
     recent = data.tail(4)
-
     if recent.shape[0] != 4:
         return False
 
-    c1 = recent.iloc[0]
-    c2 = recent.iloc[1]
-    c3 = recent.iloc[2]
-    c4 = recent.iloc[3]
+    c1, c2, c3, c4 = recent.iloc[0], recent.iloc[1], recent.iloc[2], recent.iloc[3]
 
     is_c1_bullish = c1['Close'] > c1['Open'] and (c1['Close'] - c1['Open']) > 0.02 * c1['Open']
     is_c2_bearish = c2['Close'] < c2['Open'] and c2['Close'] < c1['Close']
@@ -63,45 +58,67 @@ def detect_pattern(data):
         is_close_sequence
     ])
 
-# Fungsi menghitung indikator tambahan
-def calculate_additional_metrics(data):
-    df = data.copy()
-    df['MA20'] = df['Close'].rolling(window=20).mean()
-    df['RSI'] = compute_rsi(df['Close'], 14)
-    last_row = df.iloc[-1]
-
-    return {
-        "MA20": round(last_row['MA20'], 2) if not np.isnan(last_row['MA20']) else None,
-        "RSI": round(last_row['RSI'], 2) if not np.isnan(last_row['RSI']) else None,
-        "Volume": int(last_row['Volume']) if not np.isnan(last_row['Volume']) else None
-    }
-
 # Fungsi RSI
 def compute_rsi(close, period=14):
     delta = close.diff()
     gain = delta.where(delta > 0, 0.0)
     loss = -delta.where(delta < 0, 0.0)
-
     avg_gain = gain.rolling(window=period, min_periods=period).mean()
     avg_loss = loss.rolling(window=period, min_periods=period).mean()
-
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
-
     return rsi
+
+# Fungsi menghitung MA, RSI, Fibonacci & Volume Profile
+def calculate_additional_metrics(data):
+    df = data.copy()
+    df['MA20'] = df['Close'].rolling(window=20).mean()
+    df['RSI'] = compute_rsi(df['Close'], 14)
+
+    # Fibonacci Levels (20 hari terakhir)
+    last_20 = df.tail(20)
+    high = last_20['High'].max()
+    low = last_20['Low'].min()
+    fib_levels = {
+        'Fib_0.0': round(high, 2),
+        'Fib_0.236': round(high - 0.236 * (high - low), 2),
+        'Fib_0.382': round(high - 0.382 * (high - low), 2),
+        'Fib_0.5': round((high + low) / 2, 2),
+        'Fib_0.618': round(high - 0.618 * (high - low), 2),
+        'Fib_1.0': round(low, 2)
+    }
+
+    # Volume Profile (bin harga)
+    bins = np.linspace(low, high, 20)
+    df['Price_bin'] = pd.cut(df['Close'], bins)
+    volume_profile = df.groupby('Price_bin')['Volume'].sum()
+    most_volume_bin = volume_profile.idxmax()
+    bin_low = most_volume_bin.left
+    bin_high = most_volume_bin.right
+    volume_support_resist = round((bin_low + bin_high) / 2, 2)
+
+    last_row = df.iloc[-1]
+
+    return {
+        "MA20": round(last_row['MA20'], 2) if not np.isnan(last_row['MA20']) else None,
+        "RSI": round(last_row['RSI'], 2) if not np.isnan(last_row['RSI']) else None,
+        "Volume": int(last_row['Volume']) if not np.isnan(last_row['Volume']) else None,
+        "Fibonacci_Levels": fib_levels,
+        "Volume_Profile_Level": volume_support_resist
+    }
 
 # Main App
 def main():
-    st.title("📊 Stock Screener - Pola 4 Candle + MA20, RSI & Volume")
+    st.title("📊 Stock Screener - Pola 4 Candle + MA20, RSI, Support & Resistance")
 
     file_url = "https://docs.google.com/spreadsheets/d/1t6wgBIcPEUWMq40GdIH1GtZ8dvI9PZ2v/edit?usp=drive_link"
     df = load_google_drive_excel(file_url)
 
-    if df is None:
+    if df is None or 'Ticker' not in df.columns:
         return
 
     tickers = df['Ticker'].dropna().unique().tolist()
-    analysis_date = st.date_input("Tanggal Analisis", value=datetime.today())
+    analysis_date = st.date_input("📅 Tanggal Analisis", value=datetime.today())
 
     if st.button("🔍 Mulai Screening"):
         results = []
@@ -118,21 +135,23 @@ def main():
 
                     results.append({
                         "Ticker": ticker,
+                        "Papan": papan,
                         "Last Close": round(data['Close'].iloc[-1], 2),
-                        "Papan Pencatatan": papan,
                         "MA20": metrics["MA20"],
                         "RSI": metrics["RSI"],
-                        "Volume": metrics["Volume"]
+                        "Volume": metrics["Volume"],
+                        "Volume Profile": metrics["Volume_Profile_Level"],
+                        "Fib 0.382": metrics["Fibonacci_Levels"]['Fib_0.382'],
+                        "Fib 0.5": metrics["Fibonacci_Levels"]['Fib_0.5'],
+                        "Fib 0.618": metrics["Fibonacci_Levels"]['Fib_0.618'],
                     })
-            else:
-                st.warning(f"⛔ Data tidak cukup untuk {ticker}")
 
             progress = (i + 1) / len(tickers)
             progress_bar.progress(progress)
             progress_text.text(f"Progress: {int(progress * 100)}%")
 
         if results:
-            st.subheader("✅ Saham yang Memenuhi Pola & Indikator Tambahan")
+            st.subheader("✅ Saham yang Memenuhi Kriteria")
             st.dataframe(pd.DataFrame(results))
         else:
             st.warning("Tidak ada saham yang cocok dengan pola.")
