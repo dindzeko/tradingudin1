@@ -1,162 +1,73 @@
 import streamlit as st
 import pandas as pd
-import yfinance as yf
-from datetime import datetime, timedelta
 import numpy as np
-from sklearn.linear_model import LinearRegression
+import yfinance as yf
+from ta.momentum import RSIIndicator, MoneyFlowIndex
+from ta.trend import ADXIndicator
 
-# Fungsi membaca Excel dari Google Drive
-def load_google_drive_excel(file_url):
-    try:
-        file_id = file_url.split("/d/")[1].split("/")[0]
-        download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-        df = pd.read_excel(download_url, engine='openpyxl')
+# ========= Helper Function ===========
 
-        if 'Ticker' not in df.columns or 'Papan Pencatatan' not in df.columns:
-            st.error("Kolom 'Ticker' dan 'Papan Pencatatan' harus ada di file Excel.")
-            return None
+def compute_rsi(series, period=14):
+    return RSIIndicator(series, window=period).rsi()
 
-        st.success("✅ Berhasil memuat data dari Google Drive!")
-        st.info(f"Jumlah baris: {len(df)}")
-        return df
+def compute_mfi(high, low, close, volume, period=14):
+    return MoneyFlowIndex(high=high, low=low, close=close, volume=volume, window=period).money_flow_index()
 
-    except Exception as e:
-        st.error(f"Gagal membaca file: {e}")
-        return None
-
-# Fungsi mengambil data harga saham
-def get_stock_data(ticker, end_date):
-    try:
-        stock = yf.Ticker(f"{ticker}.JK")
-        start_date = end_date - timedelta(days=60)
-        data = stock.history(start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
-        return data if not data.empty else None
-    except Exception as e:
-        st.error(f"Gagal mengambil data untuk {ticker}: {e}")
-        return None
-
-# Fungsi mendeteksi pola 4 candle
-def detect_pattern(data):
-    recent = data.tail(4)
-    if recent.shape[0] != 4:
-        return False
-
-    c1, c2, c3, c4 = recent.iloc[0], recent.iloc[1], recent.iloc[2], recent.iloc[3]
-
-    is_c1_bullish = c1['Close'] > c1['Open'] and (c1['Close'] - c1['Open']) > 0.02 * c1['Open']
-    is_c2_bearish = c2['Close'] < c2['Open'] and c2['Close'] < c1['Close']
-    is_c3_bearish = c3['Close'] < c3['Open']
-    is_c4_bearish = c4['Close'] < c4['Open']
-    is_uptrend = c4['Close'] < c1['Close']
-    is_close_sequence = c2['Close'] > c3['Close'] > c4['Close']
-
-    return all([
-        is_c1_bullish,
-        is_c2_bearish,
-        is_c3_bearish,
-        is_c4_bearish,
-        is_uptrend,
-        is_close_sequence
-    ])
-
-# Fungsi RSI
-def compute_rsi(close, period=14):
-    delta = close.diff()
-    gain = delta.where(delta > 0, 0.0)
-    loss = -delta.where(delta < 0, 0.0)
-    avg_gain = gain.rolling(window=period, min_periods=period).mean()
-    avg_loss = loss.rolling(window=period, min_periods=period).mean()
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
-
-# Fungsi MFI
-
-def compute_mfi(df, period=14):
-    typical_price = (df['High'] + df['Low'] + df['Close']) / 3
-    money_flow = typical_price * df['Volume']
-    positive_flow = []
-    negative_flow = []
-
-    for i in range(1, len(typical_price)):
-        if typical_price[i] > typical_price[i - 1]:
-            positive_flow.append(money_flow[i])
-            negative_flow.append(0)
-        elif typical_price[i] < typical_price[i - 1]:
-            positive_flow.append(0)
-            negative_flow.append(money_flow[i])
-        else:
-            positive_flow.append(0)
-            negative_flow.append(0)
-
-    positive_mf = pd.Series(positive_flow).rolling(window=period).sum()
-    negative_mf = pd.Series(negative_flow).rolling(window=period).sum()
-    mfi = 100 - (100 / (1 + (positive_mf / negative_mf)))
-    mfi.index = df.index[1:]  # Sesuaikan index karena dimulai dari i=1
-    return mfi
-
-# Fungsi ADX
-
-def compute_adx(df, period=14):
-    high = df['High']
-    low = df['Low']
-    close = df['Close']
-
-    plus_dm = high.diff()
-    minus_dm = low.diff()
-
-    plus_dm = np.where((plus_dm > minus_dm) & (plus_dm > 0), plus_dm, 0)
-    minus_dm = np.where((minus_dm > plus_dm) & (minus_dm > 0), minus_dm, 0)
-
-    tr1 = pd.DataFrame(high - low)
-    tr2 = pd.DataFrame(abs(high - close.shift(1)))
-    tr3 = pd.DataFrame(abs(low - close.shift(1)))
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-
-    atr = tr.rolling(window=period).mean()
-    plus_di = 100 * (pd.Series(plus_dm).rolling(window=period).mean() / atr)
-    minus_di = 100 * (pd.Series(minus_dm).rolling(window=period).mean() / atr)
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-    adx = dx.rolling(window=period).mean()
-    return adx
-
-# Fungsi interpretasi OBV berdasarkan tren 10 hari
-def interpret_obv(df):
-    obv = [0]
-    for i in range(1, len(df)):
-        if df['Close'].iloc[i] > df['Close'].iloc[i - 1]:
-            obv.append(obv[-1] + df['Volume'].iloc[i])
-        elif df['Close'].iloc[i] < df['Close'].iloc[i - 1]:
-            obv.append(obv[-1] - df['Volume'].iloc[i])
+def compute_obv(close, volume):
+    obv = [volume[0]]
+    for i in range(1, len(close)):
+        if close[i] > close[i - 1]:
+            obv.append(obv[-1] + volume[i])
+        elif close[i] < close[i - 1]:
+            obv.append(obv[-1] - volume[i])
         else:
             obv.append(obv[-1])
-    df['OBV'] = obv
+    return obv
 
-    if len(df) < 10:
-        return "⏸️ Netral"
-
-    obv_last = df['OBV'].tail(10).values.reshape(-1, 1)
-    x = np.arange(len(obv_last)).reshape(-1, 1)
-
-    model = LinearRegression().fit(x, obv_last)
-    slope = model.coef_[0][0]
-
-    if slope > 1e6:
-        return "🔼 Tekanan Beli"
-    elif slope < -1e6:
-        return "🔽 Tekanan Jual"
+def interpret_obv(obv_list):
+    if len(obv_list) < 11:
+        return "Netral"
+    recent_obv = obv_list[-1]
+    avg_past_obv = np.mean(obv_list[-11:-1])
+    if recent_obv > avg_past_obv * 1.02:
+        return "Tekanan Beli"
+    elif recent_obv < avg_past_obv * 0.98:
+        return "Tekanan Jual"
     else:
-        return "⏸️ Netral"
+        return "Netral"
 
-# Fungsi menghitung MA, RSI, Fibonacci, Volume Profile & OBV interpretasi
+def detect_volume_anomaly(volume_series, factor=1.5):
+    if len(volume_series) < 21:
+        return "-"
+    avg_volume = volume_series[:-1].tail(20).mean()
+    latest_volume = volume_series.iloc[-1]
+    return "🔥 Ya" if latest_volume > avg_volume * factor else "-"
+
+def interpret_adx(adx_value):
+    if pd.isna(adx_value):
+        return "None"
+    elif adx_value < 20:
+        return "Tren Lemah"
+    elif 20 <= adx_value <= 40:
+        return "Tren Sedang"
+    else:
+        return "Tren Kuat"
 
 def calculate_additional_metrics(data):
     df = data.copy()
     df['MA20'] = df['Close'].rolling(window=20).mean()
     df['RSI'] = compute_rsi(df['Close'], 14)
-    df['MFI'] = compute_mfi(df, 14)
-    df['ADX'] = compute_adx(df, 14)
-
+    df['MFI'] = compute_mfi(df['High'], df['Low'], df['Close'], df['Volume'], 14)
+    df['OBV_raw'] = compute_obv(df['Close'], df['Volume'])
+    df['OBV_Interp'] = interpret_obv(df['OBV_raw'])
+    try:
+        adx_indicator = ADXIndicator(high=df['High'], low=df['Low'], close=df['Close'], window=14)
+        df['ADX'] = adx_indicator.adx()
+        adx_value = df['ADX'].iloc[-1]
+        adx_interpretation = interpret_adx(adx_value)
+    except:
+        adx_interpretation = "None"
+    vol_anomaly = detect_volume_anomaly(df['Volume'])
     last_20 = df.tail(20)
     high = last_20['High'].max()
     low = last_20['Low'].min()
@@ -168,7 +79,6 @@ def calculate_additional_metrics(data):
         'Fib_0.618': round(high - 0.618 * (high - low), 2),
         'Fib_1.0': round(low, 2)
     }
-
     bins = np.linspace(low, high, 20)
     df['Price_bin'] = pd.cut(df['Close'], bins)
     volume_profile = df.groupby('Price_bin')['Volume'].sum()
@@ -176,77 +86,45 @@ def calculate_additional_metrics(data):
     bin_low = most_volume_bin.left
     bin_high = most_volume_bin.right
     volume_support_resist = round((bin_low + bin_high) / 2, 2)
-
-    obv_sentiment = interpret_obv(df)
-    avg_volume = df['Volume'].rolling(window=20).mean()
-    vol_anomali = df['Volume'].iloc[-1] > 1.5 * avg_volume.iloc[-1]
-
     last_row = df.iloc[-1]
-
     return {
+        "Last Close": round(last_row['Close'], 2),
         "MA20": round(last_row['MA20'], 2) if not np.isnan(last_row['MA20']) else None,
         "RSI": round(last_row['RSI'], 2) if not np.isnan(last_row['RSI']) else None,
-        "MFI": round(df['MFI'].iloc[-1], 2) if not df['MFI'].isna().iloc[-1] else None,
-        "Volume": int(last_row['Volume']) if not np.isnan(last_row['Volume']) else None,
-        "ADX": round(df['ADX'].iloc[-1], 2) if not df['ADX'].isna().iloc[-1] else None,
-        "Volume_Anomali": vol_anomali,
-        "Fibonacci_Levels": fib_levels,
-        "Volume_Profile_Level": volume_support_resist,
-        "OBV_Interpretation": obv_sentiment
+        "MFI": round(last_row['MFI'], 2) if not np.isnan(last_row['MFI']) else None,
+        "ADX": adx_interpretation,
+        "Vol Anomal": vol_anomaly,
+        "Volume": int(last_row['Volume']),
+        "OBV": df['OBV_Interp'].iloc[-1],
+        "Fib Levels": fib_levels,
+        "Vol Profile": volume_support_resist
     }
 
-# Main App
 def main():
-    st.title("📊 Stock Screener - Semoga Cuan")
-
-    file_url = "https://docs.google.com/spreadsheets/d/1t6wgBIcPEUWMq40GdIH1GtZ8dvI9PZ2v/edit?usp=drive_link"
-    df = load_google_drive_excel(file_url)
-
-    if df is None or 'Ticker' not in df.columns:
-        return
-
-    tickers = df['Ticker'].dropna().unique().tolist()
-    analysis_date = st.date_input("📅 Tanggal Analisis", value=datetime.today())
-
-    if st.button("🔍 Mulai Screening"):
+    st.title("📈 Analisa Saham Pola 4 Candle + Indikator")
+    uploaded_file = st.file_uploader("Upload hasil screening saham (.xlsx)", type=['xlsx'])
+    if uploaded_file:
+        screener_df = pd.read_excel(uploaded_file)
         results = []
-        progress_bar = st.progress(0)
-        progress_text = st.empty()
-
-        for i, ticker in enumerate(tickers):
-            data = get_stock_data(ticker, analysis_date)
-
-            if data is not None and len(data) >= 20:
-                if detect_pattern(data):
-                    metrics = calculate_additional_metrics(data)
-                    papan = df[df['Ticker'] == ticker]['Papan Pencatatan'].values[0]
-
-                    results.append({
-                        "Ticker": ticker,
-                        "Papan": papan,
-                        "Last Close": round(data['Close'].iloc[-1], 2),
-                        "MA20": metrics["MA20"],
-                        "RSI": metrics["RSI"],
-                        "MFI": metrics["MFI"],
-                        "ADX": metrics["ADX"],
-                        "Vol Anomali": "🚨 Ya" if metrics["Volume_Anomali"] else "-",
-                        "Volume": metrics["Volume"],
-                        "OBV": metrics["OBV_Interpretation"],
-                        "Volume Profile": metrics["Volume_Profile_Level"],
-                        "Fib 0.382": metrics["Fibonacci_Levels"]['Fib_0.382'],
-                        "Fib 0.5": metrics["Fibonacci_Levels"]['Fib_0.5'],
-                        "Fib 0.618": metrics["Fibonacci_Levels"]['Fib_0.618']
-                    })
-
-            progress = (i + 1) / len(tickers)
-            progress_bar.progress(progress)
-            progress_text.text(f"Progress: {int(progress * 100)}%")
-
+        for _, row in screener_df.iterrows():
+            ticker = row['Ticker']
+            try:
+                df = yf.download(ticker + ".JK", period="60d", interval="1d", progress=False)
+                if df.empty or len(df) < 40:
+                    continue
+                analysis = calculate_additional_metrics(df)
+                combined = {
+                    "Ticker": ticker,
+                    "Papan": row.get("Papan", "-"),
+                    **{k: analysis[k] for k in ["Last Close", "MA20", "RSI", "MFI", "ADX", "Vol Anomal", "Volume", "OBV"]},
+                }
+                results.append(combined)
+            except Exception as e:
+                st.warning(f"Error untuk saham {ticker}: {str(e)}")
         if results:
-            st.subheader("✅ Saham yang Memenuhi Kriteria")
-            st.dataframe(pd.DataFrame(results))
-        else:
-            st.warning("Tidak ada saham yang cocok dengan pola.")
+            df_result = pd.DataFrame(results)
+            st.success("✅ Saham yang Memenuhi Kriteria")
+            st.dataframe(df_result, use_container_width=True)
 
 if __name__ == "__main__":
     main()
