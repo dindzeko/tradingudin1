@@ -35,13 +35,17 @@ def get_stock_data(ticker, end_date):
         st.error(f"Gagal mengambil data untuk {ticker}: {e}")
         return None
 
-# Fungsi mendeteksi pola 4 candle
+# Fungsi mendeteksi pola 4 candle (dengan validasi panjang data)
 def detect_pattern(data):
     recent = data.tail(4)
-    if len(recent) < 4:
-        return False
 
-    c1, c2, c3, c4 = recent.iloc[0:4]
+    if recent.shape[0] != 4:
+        return False  # Tidak cukup data
+
+    c1 = recent.iloc[0]
+    c2 = recent.iloc[1]
+    c3 = recent.iloc[2]
+    c4 = recent.iloc[3]
 
     is_c1_bullish = c1['Close'] > c1['Open'] and (c1['Close'] - c1['Open']) > 0.02 * c1['Open']
     is_c2_bearish = c2['Close'] < c2['Open'] and c2['Close'] < c1['Close']
@@ -50,7 +54,14 @@ def detect_pattern(data):
     is_uptrend = c4['Close'] < c1['Close']
     is_close_sequence = c2['Close'] > c3['Close'] > c4['Close']
 
-    return all([is_c1_bullish, is_c2_bearish, is_c3_bearish, is_c4_bearish, is_uptrend, is_close_sequence])
+    return all([
+        is_c1_bullish,
+        is_c2_bearish,
+        is_c3_bearish,
+        is_c4_bearish,
+        is_uptrend,
+        is_close_sequence
+    ])
 
 # Fungsi menghitung indikator tambahan
 def calculate_additional_metrics(data):
@@ -78,7 +89,7 @@ def compute_rsi(close_series, period=14):
 
 # Main App
 def main():
-    st.title("📊 Stock Screener - Pola 4 Candle + Analisis MA20, RSI & Volume")
+    st.title("📊 Stock Screener - Pola 4 Candle + MA20, RSI & Volume")
 
     file_url = "https://docs.google.com/spreadsheets/d/1t6wgBIcPEUWMq40GdIH1GtZ8dvI9PZ2v/edit?usp=drive_link"
     df = load_google_drive_excel(file_url)
@@ -108,6 +119,8 @@ def main():
                         "RSI": metrics["RSI"],
                         "Volume": metrics["Volume"]
                     })
+            else:
+                st.warning(f"⛔ Data tidak cukup untuk {ticker}")
 
             progress = (i + 1) / len(tickers)
             progress_bar.progress(progress)
