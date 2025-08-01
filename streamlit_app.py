@@ -47,23 +47,6 @@ def detect_pattern(data):
         c2['Close'] > c3['Close'] > c4['Close']
     ])
 
-# === Hitung Indikator Tambahan ===
-def calculate_metrics(data):
-    df = data.copy()
-    df['MA20'] = df['Close'].rolling(window=20).mean()
-    df['RSI'] = compute_rsi(df['Close'], 14)
-    df['OBV'] = compute_obv(df)
-    df['MFI'] = compute_mfi(df, 14)
-
-    last_row = df.iloc[-1]
-    return {
-        "MA20": round(last_row['MA20'], 2),
-        "RSI": round(last_row['RSI'], 2),
-        "OBV": int(last_row['OBV']),
-        "MFI": round(last_row['MFI'], 2),
-        "Volume": int(last_row['Volume'])
-    }
-
 # === RSI ===
 def compute_rsi(close, period=14):
     delta = close.diff()
@@ -97,29 +80,45 @@ def compute_mfi(df, period=14):
     mfi = 100 - (100 / (1 + pos_mf / neg_mf))
     return mfi
 
-# === Support & Resistance (Fibonacci) ===
-def calculate_fibonacci_levels(df):
-    max_price = df['High'].max()
-    min_price = df['Low'].min()
-    diff = max_price - min_price
-    levels = {
-        "Resist_0.618": round(max_price - 0.618 * diff, 2),
-        "Resist_0.5": round(max_price - 0.5 * diff, 2),
-        "Support_0.382": round(min_price + 0.382 * diff, 2),
-        "Support_0.236": round(min_price + 0.236 * diff, 2)
-    }
-    return levels
+# === Hitung Semua Indikator Tambahan ===
+def calculate_metrics(data):
+    df = data.copy()
+    df['MA20'] = df['Close'].rolling(window=20).mean()
+    df['RSI'] = compute_rsi(df['Close'], 14)
+    df['OBV'] = compute_obv(df)
+    df['MFI'] = compute_mfi(df, 14)
 
-# === Support & Resistance dari Volume Profile (sederhana) ===
-def calculate_volume_profile_levels(df, bins=20):
-    df = df.copy()
-    df['PriceBin'] = pd.qcut(df['Close'], bins, duplicates='drop')
-    volume_by_price = df.groupby('PriceBin')['Volume'].sum().sort_values(ascending=False)
-    most_active_bin = volume_by_price.idxmax()
-    low, high = most_active_bin.left, most_active_bin.right
+    # Fibonacci
+    last_20 = df.tail(20)
+    high = last_20['High'].max()
+    low = last_20['Low'].min()
+    diff = high - low
+    fib_levels = {
+        "Fib_0.0": round(high, 2),
+        "Fib_0.236": round(high - 0.236 * diff, 2),
+        "Fib_0.382": round(high - 0.382 * diff, 2),
+        "Fib_0.5": round((high + low) / 2, 2),
+        "Fib_0.618": round(high - 0.618 * diff, 2),
+        "Fib_1.0": round(low, 2)
+    }
+
+    # Volume Profile
+    bins = np.linspace(low, high, 20)
+    df['Price_bin'] = pd.cut(df['Close'], bins)
+    volume_profile = df.groupby('Price_bin')['Volume'].sum()
+    most_volume_bin = volume_profile.idxmax()
+    vp_level = round((most_volume_bin.left + most_volume_bin.right) / 2, 2)
+
+    last_row = df.iloc[-1]
     return {
-        "VP_Support": round(low, 2),
-        "VP_Resistance": round(high, 2)
+        "MA20": round(last_row['MA20'], 2),
+        "RSI": round(last_row['RSI'], 2),
+        "OBV": int(last_row['OBV']),
+        "MFI": round(last_row['MFI'], 2),
+        "Volume": int(last_row['Volume']),
+        "VP_Level": vp_level,
+        "Fib_Support": fib_levels['Fib_0.618'],
+        "Fib_Resistance": fib_levels['Fib_0.236']
     }
 
 # === Aplikasi Utama ===
@@ -147,8 +146,6 @@ def main():
                 if detect_pattern(data):
                     papan = df[df['Ticker'] == ticker]['Papan Pencatatan'].values[0]
                     metrics = calculate_metrics(data)
-                    fibo = calculate_fibonacci_levels(data)
-                    vp = calculate_volume_profile_levels(data)
 
                     results.append({
                         "Ticker": ticker,
@@ -159,10 +156,9 @@ def main():
                         "OBV": metrics["OBV"],
                         "MFI": metrics["MFI"],
                         "Volume": metrics["Volume"],
-                        "VP Support": vp["VP_Support"],
-                        "VP Resistance": vp["VP_Resistance"],
-                        "Fib Support": fibo["Support_0.236"],
-                        "Fib Resistance": fibo["Resist_0.618"]
+                        "VP Level": metrics["VP_Level"],
+                        "Fib Support": metrics["Fib_Support"],
+                        "Fib Resistance": metrics["Fib_Resistance"]
                     })
 
             progress.progress((i + 1) / len(tickers))
