@@ -124,7 +124,7 @@ def calculate_volume_profile_levels(df, bins=20):
 
 # === Aplikasi Utama ===
 def main():
-    st.title("📊 Stock Screener Pola 4 Candle + Analisa Sentimen")
+    st.title("📊 Analisa Pisau Jatuh")
 
     file_url = "https://docs.google.com/spreadsheets/d/1t6wgBIcPEUWMq40GdIH1GtZ8dvI9PZ2v/edit?usp=drive_link"
     df = load_google_drive_excel(file_url)
