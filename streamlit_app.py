@@ -2,160 +2,118 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from datetime import datetime, timedelta
+import numpy as np
 
 # Fungsi untuk membaca data dari Google Drive (file Excel)
 def load_google_drive_excel(file_url):
     try:
-        # Ubah URL Google Drive menjadi URL unduhan langsung
         file_id = file_url.split("/d/")[1].split("/")[0]
         download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-        
-        # Baca file Excel menggunakan pandas dengan engine openpyxl
         df = pd.read_excel(download_url, engine='openpyxl')
-        
-        # Periksa apakah kolom 'Ticker' ada di file Excel
+
         if 'Ticker' not in df.columns:
             st.error("The 'Ticker' column is missing in the Excel file.")
             return None
-        
-        # Informasi keberhasilan pembacaan file
-        st.success(f"Successfully loaded data from Google Drive!")
+
+        st.success("Successfully loaded data from Google Drive!")
         st.info(f"Number of rows read: {len(df)}")
         st.info(f"Columns in the Excel file: {', '.join(df.columns)}")
-        
         return df
+
     except Exception as e:
-        st.error(f"Error loading Excel file from Google Drive: {e}")
+        st.error(f"Error loading Excel file: {e}")
         return None
 
 # Fungsi untuk mengambil data saham
 def get_stock_data(ticker, end_date):
     try:
         stock = yf.Ticker(f"{ticker}.JK")
-        # Ambil data selama 30 hari sebelum tanggal analisis untuk memastikan mendapatkan 4 data perdagangan
-        start_date = end_date - timedelta(days=30)
-        start_date_str = start_date.strftime('%Y-%m-%d')
-        end_date_str = end_date.strftime('%Y-%m-%d')
-        data = stock.history(start=start_date_str, end=end_date_str)
-        
-        # Filter hanya 4 data terakhir
-        if len(data) >= 4:
-            data = data.tail(4)
-        else:
-            st.warning(f"Not enough trading data for {ticker} in the given date range.")
-            return None
-        
-        return data
+        start_date = end_date - timedelta(days=60)  # Ambil lebih banyak data untuk MA & RSI
+        data = stock.history(start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
+
+        return data if not data.empty else None
     except Exception as e:
         st.error(f"Error fetching data for {ticker}: {str(e)}")
         return None
 
-# Fungsi untuk mendeteksi pola berdasarkan 4 candle
+# Deteksi pola 4 candle
 def detect_pattern(data):
-    if len(data) == 4:
-        # Candle 1: Bullish dengan body besar
-        candle1 = data.iloc[0]
-        is_candle1_bullish = candle1['Close'] > candle1['Open']
-        is_candle1_large_body = (candle1['Close'] - candle1['Open']) > 0.02 * candle1['Open']  # Body besar > 2%
-        
-        # Candle 2: Bearish dan ditutup lebih rendah dari candle 1
-        candle2 = data.iloc[1]
-        is_candle2_bearish = candle2['Close'] < candle2['Open']
-        is_candle2_lower_than_candle1 = candle2['Close'] < candle1['Close']
-        
-        # Candle 3: Bearish
-        candle3 = data.iloc[2]
-        is_candle3_bearish = candle3['Close'] < candle3['Open']
-        
-        # Candle 4: Bearish
-        candle4 = data.iloc[3]
-        is_candle4_bearish = candle4['Close'] < candle4['Open']
-        
-        # Pastikan pola muncul di tren naik (harga candle 4 lebih rendah dari candle 1)
-        is_uptrend = candle4['Close'] < candle1['Close']
-        
-        # Pastikan close candle 2 > close candle 3 > close candle 4
-        is_close_sequence = candle2['Close'] > candle3['Close'] > candle4['Close']
-        
-        # Semua kondisi harus terpenuhi
-        return (
-            is_candle1_bullish and
-            is_candle1_large_body and
-            is_candle2_bearish and
-            is_candle2_lower_than_candle1 and
-            is_candle3_bearish and
-            is_candle4_bearish and
-            is_uptrend and
-            is_close_sequence
-        )
+    if len(data) >= 4:
+        recent = data.tail(4)
+        c1, c2, c3, c4 = recent.iloc[0:4]
+
+        is_c1_bullish = c1['Close'] > c1['Open'] and (c1['Close'] - c1['Open']) > 0.02 * c1['Open']
+        is_c2_bearish = c2['Close'] < c2['Open'] and c2['Close'] < c1['Close']
+        is_c3_bearish = c3['Close'] < c3['Open']
+        is_c4_bearish = c4['Close'] < c4['Open']
+        is_uptrend = c4['Close'] < c1['Close']
+        is_close_sequence = c2['Close'] > c3['Close'] > c4['Close']
+
+        return all([is_c1_bullish, is_c2_bearish, is_c3_bearish, is_c4_bearish, is_uptrend, is_close_sequence])
     return False
 
-# Main function
+# Fungsi untuk menghitung indikator tambahan
+def calculate_additional_metrics(data):
+    df = data.copy()
+    df['MA20'] = df['Close'].rolling(window=20).mean()
+    df['RSI'] = compute_rsi(df['Close'], 14)
+    last_row = df.iloc[-1]
+    return {
+        "MA20": round(last_row['MA20'], 2),
+        "RSI": round(last_row['RSI'], 2),
+        "Volume": int(last_row['Volume'])
+    }
+
+# Fungsi untuk menghitung RSI
+def compute_rsi(series, period=14):
+    delta = series.diff()
+    gain = np.where(delta > 0, delta, 0)
+    loss = np.where(delta < 0, -delta, 0)
+    avg_gain = pd.Series(gain).rolling(window=period).mean()
+    avg_loss = pd.Series(loss).rolling(window=period).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+# Main App
 def main():
-    st.title("Stock Screening - 4 Candle ")
-    
-    # URL file Excel di Google Drive
-    file_url = "https://docs.google.com/spreadsheets/d/1t6wgBIcPEUWMq40GdIH1GtZ8dvI9PZ2v/edit?usp=drive_link&ouid=106044501644618784207&rtpof=true&sd=true"
-    
-    # Load data dari Google Drive
-    st.info("Loading data from Google Drive...")
+    st.title("Stock Screening - 4 Candle + Technical Analysis")
+
+    file_url = "https://docs.google.com/spreadsheets/d/1t6wgBIcPEUWMq40GdIH1GtZ8dvI9PZ2v/edit?usp=drive_link"
     df = load_google_drive_excel(file_url)
     if df is None or 'Ticker' not in df.columns:
-        st.error("Failed to load data or 'Ticker' column is missing.")
         return
-    
+
     tickers = df['Ticker'].tolist()
-    total_tickers = len(tickers)
-    
-    # Date input
     analysis_date = st.date_input("Analysis Date", value=datetime.today())
-    
-    # Analyze button
+
     if st.button("Analyze Stocks"):
         results = []
         progress_bar = st.progress(0)
-        progress_text = st.empty()  # Placeholder untuk menampilkan persentase
-        
-        # Variabel untuk menyimpan data BBCA
-        bbc_data = None
-        
+        progress_text = st.empty()
+
         for i, ticker in enumerate(tickers):
             data = get_stock_data(ticker, analysis_date)
-            
-            # Debugging untuk ticker BBCA
-            if ticker == "BBCA":
-                if data is not None and not data.empty:
-                    bbc_data = data  # Simpan data BBCA
-                    
-            if data is not None and not data.empty:
+            if data is not None and len(data) >= 20:
                 if detect_pattern(data):
-                    # Simpan hasil saham yang memenuhi kriteria
+                    metrics = calculate_additional_metrics(data)
                     results.append({
                         "Ticker": ticker,
-                        "Last Close": data['Close'][-1],
-                        "Pattern Detected": "unconfirmed Mathold"
+                        "Last Close": round(data['Close'].iloc[-1], 2),
+                        "Pattern Detected": "Unconfirmed Mathold",
+                        "MA20": metrics["MA20"],
+                        "RSI": metrics["RSI"],
+                        "Volume": metrics["Volume"]
                     })
-            
-            # Hitung persentase kemajuan
-            progress = (i + 1) / total_tickers
+            progress = (i + 1) / len(tickers)
             progress_bar.progress(progress)
-            progress_text.text(f"Progress: {int(progress * 100)}%")  # Tampilkan persentase
-        
-        # Display results
+            progress_text.text(f"Progress: {int(progress * 100)}%")
+
         if results:
-            st.subheader("Results: Stocks Meeting Criteria")
-            results_df = pd.DataFrame(results)
-            st.dataframe(results_df)
+            st.subheader("📈 Result: Stocks Matching Pattern + Technicals")
+            st.dataframe(pd.DataFrame(results))
         else:
-            st.info("No stocks match the pattern.")
-        
-        # Bagian terpisah untuk menampilkan data BBCA
-        st.subheader("Separate Result for BBCA")
-        if bbc_data is not None and not bbc_data.empty:
-            st.write("Data Retrieved for BBCA:")
-            st.dataframe(bbc_data)  # Menampilkan data BBCA dalam bagian terpisah
-        else:
-            st.warning("No data retrieved for BBCA.")
+            st.warning("No stocks match the pattern.")
 
 if __name__ == "__main__":
     main()
