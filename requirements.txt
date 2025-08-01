@@ -4,3 +4,4 @@ yfinance
 datetime
 openpyxl
 scikit-learn
+ta
