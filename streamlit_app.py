@@ -76,15 +76,18 @@ def calculate_additional_metrics(data):
         "Volume": int(last_row['Volume']) if not np.isnan(last_row['Volume']) else None
     }
 
-# Fungsi RSI
-def compute_rsi(close_series, period=14):
-    delta = close_series.diff()
-    gain = np.where(delta > 0, delta, 0)
-    loss = np.where(delta < 0, -delta, 0)
-    avg_gain = pd.Series(gain).rolling(window=period).mean()
-    avg_loss = pd.Series(loss).rolling(window=period).mean()
+# ✅ Fungsi RSI yang diperbaiki
+def compute_rsi(close, period=14):
+    delta = close.diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+
+    avg_gain = gain.rolling(window=period, min_periods=period).mean()
+    avg_loss = loss.rolling(window=period, min_periods=period).mean()
+
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
+
     return rsi
 
 # Main App
