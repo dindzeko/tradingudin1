@@ -4,4 +4,4 @@ yfinance
 datetime
 openpyxl
 scikit-learn
-ta==0.10.2
+ta==0.7.0
