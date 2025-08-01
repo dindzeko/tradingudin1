@@ -11,8 +11,8 @@ def load_google_drive_excel(file_url):
         download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
         df = pd.read_excel(download_url, engine='openpyxl')
 
-        if 'Ticker' not in df.columns:
-            st.error("Kolom 'Ticker' tidak ditemukan di file Excel.")
+        if 'Ticker' not in df.columns or 'Papan Pencatatan' not in df.columns:
+            st.error("File harus memiliki kolom 'Ticker' dan 'Papan Pencatatan'.")
             return None
 
         st.success("✅ Berhasil memuat data dari Google Drive!")
@@ -35,12 +35,12 @@ def get_stock_data(ticker, end_date):
         st.error(f"Gagal mengambil data untuk {ticker}: {e}")
         return None
 
-# Fungsi mendeteksi pola 4 candle (dengan validasi panjang data)
+# Fungsi mendeteksi pola 4 candle
 def detect_pattern(data):
     recent = data.tail(4)
 
     if recent.shape[0] != 4:
-        return False  # Tidak cukup data
+        return False
 
     c1 = recent.iloc[0]
     c2 = recent.iloc[1]
@@ -76,7 +76,7 @@ def calculate_additional_metrics(data):
         "Volume": int(last_row['Volume']) if not np.isnan(last_row['Volume']) else None
     }
 
-# ✅ Fungsi RSI yang diperbaiki
+# Fungsi RSI
 def compute_rsi(close, period=14):
     delta = close.diff()
     gain = delta.where(delta > 0, 0.0)
@@ -97,7 +97,7 @@ def main():
     file_url = "https://docs.google.com/spreadsheets/d/1t6wgBIcPEUWMq40GdIH1GtZ8dvI9PZ2v/edit?usp=drive_link"
     df = load_google_drive_excel(file_url)
 
-    if df is None or 'Ticker' not in df.columns:
+    if df is None:
         return
 
     tickers = df['Ticker'].dropna().unique().tolist()
@@ -114,10 +114,12 @@ def main():
             if data is not None and len(data) >= 20:
                 if detect_pattern(data):
                     metrics = calculate_additional_metrics(data)
+                    papan = df[df['Ticker'] == ticker]['Papan Pencatatan'].values[0]
+
                     results.append({
                         "Ticker": ticker,
                         "Last Close": round(data['Close'].iloc[-1], 2),
-                        "Pattern": "Unconfirmed Mathold",
+                        "Papan Pencatatan": papan,
                         "MA20": metrics["MA20"],
                         "RSI": metrics["RSI"],
                         "Volume": metrics["Volume"]
