@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from ta.momentum import RSIIndicator  # Hapus MoneyFlowIndex
-from ta.trend import ADXIndicator
 
 # ========= Helper Function ===========
 
@@ -54,23 +53,6 @@ def interpret_obv(obv_list):
     else:
         return "Netral"
 
-def detect_volume_anomaly(volume_series, factor=1.5):
-    if len(volume_series) < 21:
-        return "-"
-    avg_volume = volume_series[:-1].tail(20).mean()
-    latest_volume = volume_series.iloc[-1]
-    return "🔥 Ya" if latest_volume > avg_volume * factor else "-"
-
-def interpret_adx(adx_value):
-    if pd.isna(adx_value):
-        return "None"
-    elif adx_value < 20:
-        return "Tren Lemah"
-    elif 20 <= adx_value <= 40:
-        return "Tren Sedang"
-    else:
-        return "Tren Kuat"
-
 def calculate_additional_metrics(data):
     df = data.copy()
     df['MA20'] = df['Close'].rolling(window=20).mean()
@@ -78,14 +60,6 @@ def calculate_additional_metrics(data):
     df['MFI'] = compute_mfi(df['High'], df['Low'], df['Close'], df['Volume'], 14)
     df['OBV_raw'] = compute_obv(df['Close'], df['Volume'])
     df['OBV_Interp'] = interpret_obv(df['OBV_raw'])
-    try:
-        adx_indicator = ADXIndicator(high=df['High'], low=df['Low'], close=df['Close'], window=14)
-        df['ADX'] = adx_indicator.adx()
-        adx_value = df['ADX'].iloc[-1]
-        adx_interpretation = interpret_adx(adx_value)
-    except:
-        adx_interpretation = "None"
-    vol_anomaly = detect_volume_anomaly(df['Volume'])
     last_20 = df.tail(20)
     high = last_20['High'].max()
     low = last_20['Low'].min()
@@ -110,8 +84,6 @@ def calculate_additional_metrics(data):
         "MA20": round(last_row['MA20'], 2) if not np.isnan(last_row['MA20']) else None,
         "RSI": round(last_row['RSI'], 2) if not np.isnan(last_row['RSI']) else None,
         "MFI": round(last_row['MFI'], 2) if not np.isnan(last_row['MFI']) else None,
-        "ADX": adx_interpretation,
-        "Vol Anomal": vol_anomaly,
         "Volume": int(last_row['Volume']),
         "OBV": df['OBV_Interp'].iloc[-1],
         "Fib Levels": fib_levels,
@@ -134,7 +106,7 @@ def main():
                 combined = {
                     "Ticker": ticker,
                     "Papan": row.get("Papan", "-"),
-                    **{k: analysis[k] for k in ["Last Close", "MA20", "RSI", "MFI", "ADX", "Vol Anomal", "Volume", "OBV"]},
+                    **{k: analysis[k] for k in ["Last Close", "MA20", "RSI", "MFI", "Volume", "OBV"]},
                 }
                 results.append(combined)
             except Exception as e:
