@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
-from ta.momentum import RSIIndicator, MoneyFlowIndex
+from ta.momentum import RSIIndicator  # Hapus MoneyFlowIndex
 from ta.trend import ADXIndicator
 
 # ========= Helper Function ===========
@@ -11,7 +11,25 @@ def compute_rsi(series, period=14):
     return RSIIndicator(series, window=period).rsi()
 
 def compute_mfi(high, low, close, volume, period=14):
-    return MoneyFlowIndex(high=high, low=low, close=close, volume=volume, window=period).money_flow_index()
+    typical_price = (high + low + close) / 3
+    money_flow = typical_price * volume
+    positive_flow = []
+    negative_flow = []
+    for i in range(1, len(typical_price)):
+        if typical_price[i] > typical_price[i - 1]:
+            positive_flow.append(money_flow[i])
+            negative_flow.append(0)
+        elif typical_price[i] < typical_price[i - 1]:
+            positive_flow.append(0)
+            negative_flow.append(money_flow[i])
+        else:
+            positive_flow.append(0)
+            negative_flow.append(0)
+    pos_mf = pd.Series(positive_flow).rolling(window=period).sum()
+    neg_mf = pd.Series(negative_flow).rolling(window=period).sum()
+    mfi = 100 - (100 / (1 + (pos_mf / neg_mf)))
+    mfi = pd.Series([None] * (period) + list(mfi))  # Align index
+    return mfi
 
 def compute_obv(close, volume):
     obv = [volume[0]]
