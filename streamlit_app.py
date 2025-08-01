@@ -92,53 +92,49 @@ def compute_mfi(df, period=14):
     mfi = 100 - (100 / (1 + pos_mf / neg_mf))
     return mfi
 
-# === Hitung Indikator Tambahan ===
-def calculate_metrics(data):
+# === Tambahan Analisis (MA, RSI, OBV, MFI, Fibonacci & Volume Profile) ===
+def calculate_additional_metrics(data):
     df = data.copy()
     df['MA20'] = df['Close'].rolling(window=20).mean()
     df['RSI'] = compute_rsi(df['Close'], 14)
     df['OBV'] = compute_obv(df)
     df['MFI'] = compute_mfi(df, 14)
 
+    last_20 = df.tail(20)
+    high = last_20['High'].max()
+    low = last_20['Low'].min()
+    fib_levels = {
+        'Fib_0.0': round(high, 2),
+        'Fib_0.236': round(high - 0.236 * (high - low), 2),
+        'Fib_0.382': round(high - 0.382 * (high - low), 2),
+        'Fib_0.5': round((high + low) / 2, 2),
+        'Fib_0.618': round(high - 0.618 * (high - low), 2),
+        'Fib_1.0': round(low, 2)
+    }
+
+    bins = np.linspace(low, high, 20)
+    df['Price_bin'] = pd.cut(df['Close'], bins)
+    volume_profile = df.groupby('Price_bin')['Volume'].sum()
+    most_volume_bin = volume_profile.idxmax()
+    bin_low = most_volume_bin.left
+    bin_high = most_volume_bin.right
+    volume_support_resist = round((bin_low + bin_high) / 2, 2)
+
     last_row = df.iloc[-1]
-    obv_interpretation = interpret_obv(df['OBV'])
 
     return {
         "MA20": round(last_row['MA20'], 2) if not np.isnan(last_row['MA20']) else None,
         "RSI": round(last_row['RSI'], 2) if not np.isnan(last_row['RSI']) else None,
-        "OBV": obv_interpretation,
+        "OBV": interpret_obv(df['OBV']),
         "MFI": round(last_row['MFI'], 2) if not np.isnan(last_row['MFI']) else None,
-        "Volume": int(last_row['Volume']) if not np.isnan(last_row['Volume']) else None
-    }
-
-# === Fibonacci Support & Resistance ===
-def calculate_fibonacci_levels(df):
-    max_price = df['High'].max()
-    min_price = df['Low'].min()
-    diff = max_price - min_price
-    levels = {
-        "Resist_0.618": round(max_price - 0.618 * diff, 2),
-        "Resist_0.5": round(max_price - 0.5 * diff, 2),
-        "Support_0.382": round(min_price + 0.382 * diff, 2),
-        "Support_0.236": round(min_price + 0.236 * diff, 2)
-    }
-    return levels
-
-# === Volume Profile Support & Resistance ===
-def calculate_volume_profile_levels(df, bins=20):
-    df = df.copy()
-    df['PriceBin'] = pd.qcut(df['Close'], bins, duplicates='drop')
-    volume_by_price = df.groupby('PriceBin')['Volume'].sum().sort_values(ascending=False)
-    most_active_bin = volume_by_price.idxmax()
-    low, high = most_active_bin.left, most_active_bin.right
-    return {
-        "VP_Support": round(low, 2),
-        "VP_Resistance": round(high, 2)
+        "Volume": int(last_row['Volume']) if not np.isnan(last_row['Volume']) else None,
+        "Fibonacci_Levels": fib_levels,
+        "Volume_Profile_Level": volume_support_resist
     }
 
 # === Aplikasi Utama ===
 def main():
-    st.title("📊 Analisa Saham Pola 4 Candle + Indikator")
+    st.title("\ud83d\udcca Analisa Saham Pola 4 Candle + Indikator")
 
     file_url = "https://docs.google.com/spreadsheets/d/1t6wgBIcPEUWMq40GdIH1GtZ8dvI9PZ2v/edit?usp=drive_link"
     df = load_google_drive_excel(file_url)
@@ -147,9 +143,9 @@ def main():
         return
 
     tickers = df['Ticker'].dropna().unique().tolist()
-    analysis_date = st.date_input("📅 Tanggal Analisis", value=datetime.today())
+    analysis_date = st.date_input("\ud83d\uddd3\ufe0f Tanggal Analisis", value=datetime.today())
 
-    if st.button("🔍 Jalankan Screening"):
+    if st.button("\ud83d\udd0d Jalankan Screening"):
         results = []
         progress = st.progress(0)
         info = st.empty()
@@ -160,9 +156,9 @@ def main():
             if data is not None and len(data) >= 30:
                 if detect_pattern(data):
                     papan = df[df['Ticker'] == ticker]['Papan Pencatatan'].values[0]
-                    metrics = calculate_metrics(data)
-                    fibo = calculate_fibonacci_levels(data)
-                    vp = calculate_volume_profile_levels(data)
+                    metrics = calculate_additional_metrics(data)
+
+                    fib = metrics['Fibonacci_Levels']
 
                     results.append({
                         "Ticker": ticker,
@@ -173,10 +169,8 @@ def main():
                         "OBV": metrics["OBV"],
                         "MFI": metrics["MFI"],
                         "Volume": metrics["Volume"],
-                        "VP Support": vp["VP_Support"],
-                        "VP Resistance": vp["VP_Resistance"],
-                        "Fib Support": fibo["Support_0.236"],
-                        "Fib Resistance": fibo["Resist_0.618"]
+                        "VP/Fib Support": min(metrics['Volume_Profile_Level'], fib['Fib_0.618']),
+                        "VP/Fib Resistance": max(metrics['Volume_Profile_Level'], fib['Fib_0.382'])
                     })
 
             progress.progress((i + 1) / len(tickers))
