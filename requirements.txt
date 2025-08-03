@@ -1,8 +1,8 @@
 streamlit
 pandas
 yfinance
-datetime
-openpyxl
-scikit-learn
 numpy
-ta
+scikit-learn
+scipy
+plotly
+ta-lib
