@@ -7,6 +7,12 @@ import plotly.graph_objects as go
 from sklearn.cluster import KMeans
 from scipy.signal import argrelextrema
 
+# Inisialisasi session state
+if 'screening_results' not in st.session_state:
+    st.session_state.screening_results = None
+if 'selected_ticker' not in st.session_state:
+    st.session_state.selected_ticker = None
+
 # 1. PERBAIKAN MFI
 def compute_mfi(df, period=14):
     """
@@ -291,6 +297,7 @@ def main():
     tickers = df['Ticker'].dropna().unique().tolist()
     analysis_date = st.date_input("📅 Tanggal Analisis", value=datetime.today())
 
+    # Tombol screening
     if st.button("🔍 Mulai Screening"):
         results = []
         progress_bar = st.progress(0)
@@ -328,16 +335,32 @@ def main():
             progress_text.text(f"Progress: {int(progress * 100)}% - Memproses {ticker}")
 
         if results:
-            st.subheader("✅ Saham yang Memenuhi Kriteria")
-            result_df = pd.DataFrame(results)
-            st.dataframe(result_df)
-            
-            # Tambahkan opsi visualisasi
-            selected_ticker = st.selectbox("Pilih Saham untuk Detail", result_df['Ticker'].tolist())
-            if selected_ticker:
-                show_stock_details(selected_ticker, analysis_date)
+            st.session_state.screening_results = pd.DataFrame(results)
+            st.session_state.selected_ticker = None
         else:
             st.warning("Tidak ada saham yang cocok dengan pola.")
+
+    # Tampilkan hasil screening jika ada
+    if st.session_state.screening_results is not None:
+        st.subheader("✅ Saham yang Memenuhi Kriteria")
+        st.dataframe(st.session_state.screening_results)
+        
+        # Dropdown untuk memilih saham
+        ticker_list = st.session_state.screening_results['Ticker'].tolist()
+        selected_ticker = st.selectbox(
+            "Pilih Saham untuk Detail",
+            options=ticker_list,
+            index=ticker_list.index(st.session_state.selected_ticker) if st.session_state.selected_ticker in ticker_list else 0,
+            key='ticker_selector'
+        )
+        
+        # Simpan ticker yang dipilih di session state
+        st.session_state.selected_ticker = selected_ticker
+        
+        # Tombol untuk menampilkan detail
+        if st.button("Tampilkan Analisis Detail"):
+            if st.session_state.selected_ticker:
+                show_stock_details(st.session_state.selected_ticker, analysis_date)
 
 def show_stock_details(ticker, end_date):
     """Menampilkan detail analisis teknis untuk saham terpilih"""
