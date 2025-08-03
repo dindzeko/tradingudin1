@@ -4,10 +4,8 @@ import yfinance as yf
 from datetime import datetime, timedelta
 import numpy as np
 import plotly.graph_objects as go
-from sklearn.linear_model import LinearRegression
 from sklearn.cluster import KMeans
 from scipy.signal import argrelextrema
-import talib as ta
 
 # 1. PERBAIKAN MFI
 def compute_mfi(df, period=14):
@@ -63,7 +61,6 @@ def interpret_mfi(mfi_value):
 def identify_significant_swings(df, window=60, min_swing_size=0.05):
     """
     Mengidentifikasi swing high dan swing low yang signifikan
-    berdasarkan pergerakan harga dan volume
     """
     # 1. Identifikasi swing points awal
     highs = df['High']
@@ -74,8 +71,8 @@ def identify_significant_swings(df, window=60, min_swing_size=0.05):
     min_idx = argrelextrema(lows.values, np.less, order=5)[0]
     
     # Ambil swing points dalam window terbaru
-    recent_highs = highs.iloc[max_idx][-10:]
-    recent_lows = lows.iloc[min_idx][-10:]
+    recent_highs = highs.iloc[max_idx][-10:] if len(max_idx) > 0 else pd.Series()
+    recent_lows = lows.iloc[min_idx][-10:] if len(min_idx) > 0 else pd.Series()
     
     if len(recent_highs) == 0 or len(recent_lows) == 0:
         # Fallback jika tidak ditemukan swing points
@@ -96,19 +93,12 @@ def identify_significant_swings(df, window=60, min_swing_size=0.05):
             significant_lows.append(recent_lows.iloc[i])
     
     # 3. Pilih swing tertinggi dan terendah yang signifikan
-    if not significant_highs:
-        swing_high = recent_highs.max()
-    else:
-        swing_high = max(significant_highs)
-    
-    if not significant_lows:
-        swing_low = recent_lows.min()
-    else:
-        swing_low = min(significant_lows)
+    swing_high = max(significant_highs) if significant_highs else recent_highs.max()
+    swing_low = min(significant_lows) if significant_lows else recent_lows.min()
     
     return swing_high, swing_low
 
-def calculate_fibonacci_levels(df, swing_high, swing_low):
+def calculate_fibonacci_levels(swing_high, swing_low):
     """Menghitung level Fibonacci retracement yang akurat"""
     diff = swing_high - swing_low
     return {
@@ -127,26 +117,22 @@ def calculate_vwap(df):
     vwap = (tp * df['Volume']).cumsum() / df['Volume'].cumsum()
     return vwap
 
-def find_psychological_levels(df):
+def find_psychological_levels(close_price):
     """Menemukan level psikologis terdekat"""
-    close = df['Close'].iloc[-1]
     levels = [50, 100, 200, 500, 1000, 2000, 5000]
-    
-    # Temukan level terdekat
-    distances = [abs(close - level) for level in levels]
-    closest_idx = np.argmin(distances)
-    return levels[closest_idx]
+    closest_level = min(levels, key=lambda x: abs(x - close_price))
+    return closest_level
 
 def calculate_support_resistance(data):
     """
     Menghitung level support dan resistance dengan berbagai metode
-    dan mengembalikan level terpenting
     """
     df = data.copy()
+    current_price = df['Close'].iloc[-1]
     
     # 1. Swing Points dan Fibonacci
     swing_high, swing_low = identify_significant_swings(df.tail(60))
-    fib_levels = calculate_fibonacci_levels(df, swing_high, swing_low)
+    fib_levels = calculate_fibonacci_levels(swing_high, swing_low)
     
     # 2. Moving Averages
     ma20 = df['Close'].rolling(20).mean().iloc[-1]
@@ -156,7 +142,7 @@ def calculate_support_resistance(data):
     vwap = calculate_vwap(df).iloc[-1]
     
     # 4. Psychological Levels
-    psych_level = find_psychological_levels(df)
+    psych_level = find_psychological_levels(current_price)
     
     # Gabungkan semua level
     support_levels = [
@@ -176,7 +162,6 @@ def calculate_support_resistance(data):
     ]
     
     # Filter nilai valid dan ambil yang paling signifikan
-    current_price = df['Close'].iloc[-1]
     valid_support = [lvl for lvl in support_levels if not np.isnan(lvl) and lvl < current_price]
     valid_resistance = [lvl for lvl in resistance_levels if not np.isnan(lvl) and lvl > current_price]
     
@@ -212,7 +197,7 @@ def load_google_drive_excel(file_url):
 def get_stock_data(ticker, end_date):
     try:
         stock = yf.Ticker(f"{ticker}.JK")
-        start_date = end_date - timedelta(days=90)  # Perpanjang periode untuk analisis
+        start_date = end_date - timedelta(days=90)
         data = stock.history(start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
         return data if not data.empty else None
     except Exception as e:
@@ -220,10 +205,10 @@ def get_stock_data(ticker, end_date):
         return None
 
 def detect_pattern(data):
-    recent = data.tail(4)
-    if recent.shape[0] != 4:
+    if len(data) < 4:
         return False
-
+        
+    recent = data.tail(4)
     c1, c2, c3, c4 = recent.iloc[0], recent.iloc[1], recent.iloc[2], recent.iloc[3]
 
     # Kriteria lebih fleksibel
@@ -231,7 +216,7 @@ def detect_pattern(data):
     is_c2_bearish = c2['Close'] < c2['Open'] and c2['Close'] < c1['Close']
     is_c3_bearish = c3['Close'] < c3['Open']
     is_c4_bearish = c4['Close'] < c4['Open']
-    is_uptrend = data['Close'].iloc[-20:].mean() > data['Close'].iloc[-50:-20].mean()
+    is_uptrend = data['Close'].iloc[-20:].mean() > data['Close'].iloc[-50:-20].mean() if len(data) >= 50 else False
     is_close_sequence = c2['Close'] > c3['Close'] > c4['Close']
 
     return all([
@@ -243,6 +228,19 @@ def detect_pattern(data):
         is_close_sequence
     ])
 
+def compute_rsi(close, period=14):
+    """Menghitung Relative Strength Index (RSI)"""
+    delta = close.diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+    
+    avg_gain = gain.rolling(window=period, min_periods=1).mean()
+    avg_loss = loss.rolling(window=period, min_periods=1).mean()
+    
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
 def calculate_additional_metrics(data):
     df = data.copy()
     metrics = {}
@@ -252,18 +250,18 @@ def calculate_additional_metrics(data):
     df['MA50'] = df['Close'].rolling(window=50).mean()
     
     # Indikator Momentum
-    df['RSI'] = compute_rsi(df['Close'], 14)
+    df['RSI'] = compute_rsi(df['Close'])
     df['MFI'] = compute_mfi(df, 14)
     
     # Volume Analysis
     df['Avg_Volume_20'] = df['Volume'].rolling(window=20).mean()
-    vol_anomali = df['Volume'].iloc[-1] > 1.7 * df['Avg_Volume_20'].iloc[-1]
+    vol_anomali = (df['Volume'].iloc[-1] > 1.7 * df['Avg_Volume_20'].iloc[-1]) if not df['Avg_Volume_20'].isna().iloc[-1] else False
     
     # Support & Resistance
     sr_levels = calculate_support_resistance(df)
     
     # Interpretasi Indikator
-    mfi_value = df['MFI'].iloc[-1]
+    mfi_value = df['MFI'].iloc[-1] if not df['MFI'].empty else np.nan
     mfi_signal = interpret_mfi(mfi_value) if not np.isnan(mfi_value) else "N/A"
     
     last_row = df.iloc[-1]
@@ -344,7 +342,8 @@ def main():
 def show_stock_details(ticker, end_date):
     """Menampilkan detail analisis teknis untuk saham terpilih"""
     data = get_stock_data(ticker, end_date)
-    if data is None:
+    if data is None or data.empty:
+        st.warning(f"Data untuk {ticker} tidak tersedia")
         return
         
     st.subheader(f"Analisis Teknis: {ticker}")
@@ -378,38 +377,41 @@ def show_stock_details(ticker, end_date):
         line=dict(color='orange', width=1)
     ))
     
-    # Support/Resistance dan Fibonacci
-    sr = calculate_support_resistance(data)
-    fib = sr['Fibonacci']
-    
-    # Tambahkan level Support/Resistance
-    for level in sr['Support']:
-        fig.add_hline(
-            y=level, 
-            line_dash="dash", 
-            line_color="green",
-            annotation_text=f"Support: {level:.2f}",
-            annotation_position="bottom right"
-        )
-    for level in sr['Resistance']:
-        fig.add_hline(
-            y=level, 
-            line_dash="dash", 
-            line_color="red",
-            annotation_text=f"Resistance: {level:.2f}",
-            annotation_position="top right"
-        )
-    
-    # Tambahkan level Fibonacci
-    for key, value in fib.items():
-        if "Fib" in key:
+    try:
+        # Support/Resistance dan Fibonacci
+        sr = calculate_support_resistance(data)
+        fib = sr['Fibonacci']
+        
+        # Tambahkan level Support/Resistance
+        for level in sr['Support']:
             fig.add_hline(
-                y=value,
-                line_dash="dot",
-                line_color="purple",
-                annotation_text=f"{key}: {value:.2f}",
-                annotation_position="top left" if "0." in key else "bottom left"
+                y=level, 
+                line_dash="dash", 
+                line_color="green",
+                annotation_text=f"Support: {level:.2f}",
+                annotation_position="bottom right"
             )
+        for level in sr['Resistance']:
+            fig.add_hline(
+                y=level, 
+                line_dash="dash", 
+                line_color="red",
+                annotation_text=f"Resistance: {level:.2f}",
+                annotation_position="top right"
+            )
+        
+        # Tambahkan level Fibonacci
+        for key, value in fib.items():
+            if "Fib" in key:
+                fig.add_hline(
+                    y=value,
+                    line_dash="dot",
+                    line_color="purple",
+                    annotation_text=f"{key}: {value:.2f}",
+                    annotation_position="top left" if "0." in key else "bottom left"
+                )
+    except Exception as e:
+        st.warning(f"Gagal menghitung support/resistance: {e}")
     
     # Layout chart
     fig.update_layout(
@@ -423,31 +425,30 @@ def show_stock_details(ticker, end_date):
     
     # Tampilkan indikator tambahan
     st.subheader("Indikator Teknikal")
-    metrics = calculate_additional_metrics(data)
-    fib = metrics["Fibonacci"]
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("MA20", f"{metrics['MA20']:.2f}")
-    col1.metric("MA50", f"{metrics['MA50']:.2f}")
-    col2.metric("RSI", f"{metrics['RSI']:.2f}")
-    col2.metric("MFI", f"{metrics['MFI']:.2f}", metrics['MFI_Signal'])
-    col3.metric("Volume", f"{metrics['Volume']:,}")
-    col3.metric("Volume Anomali", "Ya" if metrics['Volume_Anomali'] else "Tidak")
-    
-    st.subheader("Level Penting")
-    st.write(f"**Support:** {' | '.join([f'{s:.2f}' for s in metrics['Support']])}")
-    st.write(f"**Resistance:** {' | '.join([f'{r:.2f}' for r in metrics['Resistance']])}")
-    
-    st.subheader("Level Fibonacci")
-    fib_cols = st.columns(4)
-    fib_cols[0].metric("Fib 0.236", f"{fib['Fib_0.236']:.2f}")
-    fib_cols[1].metric("Fib 0.382", f"{fib['Fib_0.382']:.2f}")
-    fib_cols[2].metric("Fib 0.5", f"{fib['Fib_0.5']:.2f}")
-    fib_cols[3].metric("Fib 0.618", f"{fib['Fib_0.618']:.2f}")
-
-def compute_rsi(close, period=14):
-    """Menghitung Relative Strength Index (RSI)"""
-    return ta.RSI(close, timeperiod=period)
+    try:
+        metrics = calculate_additional_metrics(data)
+        fib = metrics.get("Fibonacci", {})
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("MA20", f"{metrics.get('MA20', 0):.2f}")
+        col1.metric("MA50", f"{metrics.get('MA50', 0):.2f}")
+        col2.metric("RSI", f"{metrics.get('RSI', 0):.2f}")
+        col2.metric("MFI", f"{metrics.get('MFI', 0):.2f}", metrics.get('MFI_Signal', 'N/A'))
+        col3.metric("Volume", f"{metrics.get('Volume', 0):,}")
+        col3.metric("Volume Anomali", "Ya" if metrics.get('Volume_Anomali', False) else "Tidak")
+        
+        st.subheader("Level Penting")
+        st.write(f"**Support:** {' | '.join([f'{s:.2f}' for s in metrics.get('Support', [])])}")
+        st.write(f"**Resistance:** {' | '.join([f'{r:.2f}' for r in metrics.get('Resistance', [])])}")
+        
+        st.subheader("Level Fibonacci")
+        fib_cols = st.columns(4)
+        fib_cols[0].metric("Fib 0.236", f"{fib.get('Fib_0.236', 0):.2f}")
+        fib_cols[1].metric("Fib 0.382", f"{fib.get('Fib_0.382', 0):.2f}")
+        fib_cols[2].metric("Fib 0.5", f"{fib.get('Fib_0.5', 0):.2f}")
+        fib_cols[3].metric("Fib 0.618", f"{fib.get('Fib_0.618', 0):.2f}")
+    except Exception as e:
+        st.error(f"Gagal menampilkan indikator: {e}")
 
 if __name__ == "__main__":
     main()
