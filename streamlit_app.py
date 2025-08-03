@@ -286,7 +286,7 @@ def calculate_additional_metrics(data):
     }
 
 def main():
-    st.title("📊 Stock Screener - Semoga Cuan Pro")
+    st.title("📊 Stock Screener - Pisau Jatuh SHZ 2nd Gen Edition ")
 
     file_url = "https://docs.google.com/spreadsheets/d/1t6wgBIcPEUWMq40GdIH1GtZ8dvI9PZ2v/edit?usp=drive_link"
     df = load_google_drive_excel(file_url)
