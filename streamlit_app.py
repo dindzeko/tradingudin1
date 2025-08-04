@@ -4,7 +4,8 @@ import yfinance as yf
 from datetime import datetime, timedelta
 import numpy as np
 import plotly.graph_objects as go
-from sklearn.cluster import KMeans
+import requests
+from io import BytesIO
 from scipy.signal import argrelextrema
 
 # Inisialisasi session state
@@ -13,11 +14,77 @@ if 'screening_results' not in st.session_state:
 if 'selected_ticker' not in st.session_state:
     st.session_state.selected_ticker = None
 
-# 1. PERBAIKAN MFI
+# 1. Fungsi Deteksi Volume Anomali yang Diperbarui
+def detect_volume_anomaly(df, window=20, std_multiplier=2.0, market_comparison=True):
+    """
+    Mendeteksi anomali volume dengan pendekatan profesional:
+    - Analisis statistik (standar deviasi)
+    - Perbandingan dengan pasar/indeks
+    - Konteks pergerakan harga
+    - Pola multi-hari
+    """
+    # Cek apakah data cukup untuk analisis
+    if len(df) < window:
+        return {
+            "is_anomaly": False,
+            "type": "Netral",
+            "volume_ratio": 0,
+            "market_relative": None
+        }
+    
+    # Hitung rata-rata dan standar deviasi
+    df['Volume_MA'] = df['Volume'].rolling(window).mean()
+    df['Volume_STD'] = df['Volume'].rolling(window).std()
+    
+    # Deteksi anomali statistik
+    statistical_anomaly = False
+    if not pd.isna(df['Volume_MA'].iloc[-1]) and not pd.isna(df['Volume_STD'].iloc[-1]):
+        statistical_anomaly = df['Volume'].iloc[-1] > (df['Volume_MA'].iloc[-1] + std_multiplier * df['Volume_STD'].iloc[-1])
+    
+    # Deteksi anomali relatif terhadap pasar
+    market_relative_anomaly = False
+    market_relative = None
+    if market_comparison:
+        try:
+            market_data = yf.download('^JKSE', period='60d', progress=False)['Volume']
+            if not market_data.empty:
+                market_avg = market_data.mean()
+                market_relative = df['Volume'].iloc[-1] / market_avg
+                market_relative_anomaly = market_relative > 2.0
+        except Exception as e:
+            st.error(f"Error in market data: {str(e)}")
+            pass
+    
+    # Deteksi volume tinggi berkelanjutan
+    sustained_anomaly = False
+    if len(df) >= window + 3:
+        recent_volumes = df['Volume'].tail(3)
+        sustained_anomaly = all(recent_volumes > 1.5 * df['Volume_MA'].iloc[-1])
+    
+    # Klasifikasi berdasarkan pergerakan harga
+    anomaly_type = "Netral"
+    volume_ratio = round(df['Volume'].iloc[-1] / df['Volume_MA'].iloc[-1], 2) if not pd.isna(df['Volume_MA'].iloc[-1]) else 0
+    
+    if statistical_anomaly or market_relative_anomaly or sustained_anomaly:
+        if len(df) >= 2:
+            price_change = (df['Close'].iloc[-1] - df['Close'].iloc[-2]) / df['Close'].iloc[-2]
+            if abs(price_change) > 0.05:
+                anomaly_type = "Breakout" if price_change > 0 else "Breakdown"
+            else:
+                anomaly_type = "Akumulasi/Distribusi"
+        else:
+            anomaly_type = "Volume Tinggi"
+    
+    return {
+        "is_anomaly": statistical_anomaly or market_relative_anomaly or sustained_anomaly,
+        "type": anomaly_type,
+        "volume_ratio": volume_ratio,
+        "market_relative": round(market_relative, 2) if market_relative is not None else None
+    }
+
+# 2. PERBAIKAN MFI
 def compute_mfi(df, period=14):
-    """
-    Menghitung Money Flow Index (MFI) dengan metode yang benar
-    """
+    """Menghitung Money Flow Index (MFI) dengan metode yang benar"""
     # Hitung Typical Price
     tp = (df['High'] + df['Low'] + df['Close']) / 3
     money_flow = tp * df['Volume']
@@ -63,11 +130,9 @@ def interpret_mfi(mfi_value):
     else:
         return "⚪ Neutral"
 
-# 2. PERBAIKAN SUPPORT/RESISTANCE DAN FIBONACCI
+# 3. PERBAIKAN SUPPORT/RESISTANCE DAN FIBONACCI
 def identify_significant_swings(df, window=60, min_swing_size=0.05):
-    """
-    Mengidentifikasi swing high dan swing low yang signifikan
-    """
+    """Mengidentifikasi swing high dan swing low yang signifikan"""
     # 1. Identifikasi swing points awal
     highs = df['High']
     lows = df['Low']
@@ -130,9 +195,7 @@ def find_psychological_levels(close_price):
     return closest_level
 
 def calculate_support_resistance(data):
-    """
-    Menghitung level support dan resistance dengan berbagai metode
-    """
+    """Menghitung level support dan resistance dengan berbagai metode"""
     df = data.copy()
     current_price = df['Close'].iloc[-1]
     
@@ -181,12 +244,17 @@ def calculate_support_resistance(data):
         'Fibonacci': fib_levels
     }
 
-# 3. FUNGSI UTAMA DAN FUNGSI PENDUKUNG
+# 4. FUNGSI UTAMA DAN FUNGSI PENDUKUNG
 def load_google_drive_excel(file_url):
     try:
         file_id = file_url.split("/d/")[1].split("/")[0]
         download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-        df = pd.read_excel(download_url, engine='openpyxl')
+        response = requests.get(download_url)
+        response.raise_for_status()
+        
+        # Gunakan BytesIO untuk membaca file dari respons
+        excel_data = BytesIO(response.content)
+        df = pd.read_excel(excel_data, engine='openpyxl')
 
         if 'Ticker' not in df.columns or 'Papan Pencatatan' not in df.columns:
             st.error("Kolom 'Ticker' dan 'Papan Pencatatan' harus ada di file Excel.")
@@ -259,15 +327,14 @@ def calculate_additional_metrics(data):
     df['RSI'] = compute_rsi(df['Close'])
     df['MFI'] = compute_mfi(df, 14)
     
-    # Volume Analysis
-    df['Avg_Volume_20'] = df['Volume'].rolling(window=20).mean()
-    vol_anomali = (df['Volume'].iloc[-1] > 1.7 * df['Avg_Volume_20'].iloc[-1]) if not df['Avg_Volume_20'].isna().iloc[-1] else False
+    # Volume Analysis (menggunakan pendekatan baru)
+    volume_analysis = detect_volume_anomaly(df, market_comparison=True)
     
     # Support & Resistance
     sr_levels = calculate_support_resistance(df)
     
     # Interpretasi Indikator
-    mfi_value = df['MFI'].iloc[-1] if not df['MFI'].empty else np.nan
+    mfi_value = df['MFI'].iloc[-1] if not df['MFI'].empty and not pd.isna(df['MFI'].iloc[-1]) else np.nan
     mfi_signal = interpret_mfi(mfi_value) if not np.isnan(mfi_value) else "N/A"
     
     last_row = df.iloc[-1]
@@ -279,14 +346,16 @@ def calculate_additional_metrics(data):
         "MFI": round(mfi_value, 2) if not np.isnan(mfi_value) else None,
         "MFI_Signal": mfi_signal,
         "Volume": int(last_row['Volume']) if not np.isnan(last_row['Volume']) else None,
-        "Volume_Anomali": vol_anomali,
+        "Volume_Anomali": volume_analysis["is_anomaly"],
+        "Anomali_Tipe": volume_analysis["type"],
+        "Volume_Ratio": volume_analysis["volume_ratio"],
         "Support": sr_levels['Support'],
         "Resistance": sr_levels['Resistance'],
         "Fibonacci": sr_levels['Fibonacci']
     }
 
 def main():
-    st.title("📊 Stock Screener - Pisau Jatuh SHZ 2nd Gen Edition ")
+    st.title("📊 Stock Screener - Pisau Jatuh SHZ 2nd Gen Edition")
 
     file_url = "https://docs.google.com/spreadsheets/d/1t6wgBIcPEUWMq40GdIH1GtZ8dvI9PZ2v/edit?usp=drive_link"
     df = load_google_drive_excel(file_url)
@@ -302,6 +371,7 @@ def main():
         results = []
         progress_bar = st.progress(0)
         progress_text = st.empty()
+        total_tickers = len(tickers)
 
         for i, ticker in enumerate(tickers):
             data = get_stock_data(ticker, analysis_date)
@@ -322,6 +392,8 @@ def main():
                         "MFI": metrics["MFI"],
                         "MFI Signal": metrics["MFI_Signal"],
                         "Vol Anomali": "🚨 Ya" if metrics["Volume_Anomali"] else "-",
+                        "Anomali Tipe": metrics["Anomali_Tipe"],
+                        "Vol Ratio": metrics["Volume_Ratio"],
                         "Volume": metrics["Volume"],
                         "Support": " | ".join([f"{s:.2f}" for s in metrics["Support"]]),
                         "Resistance": " | ".join([f"{r:.2f}" for r in metrics["Resistance"]]),
@@ -330,13 +402,14 @@ def main():
                         "Fib 0.618": fib['Fib_0.618']
                     })
 
-            progress = (i + 1) / len(tickers)
+            progress = (i + 1) / total_tickers
             progress_bar.progress(progress)
-            progress_text.text(f"Progress: {int(progress * 100)}% - Memproses {ticker}")
+            progress_text.text(f"Progress: {int(progress * 100)}% - Memproses {ticker} ({i+1}/{total_tickers})")
 
         if results:
             st.session_state.screening_results = pd.DataFrame(results)
             st.session_state.selected_ticker = None
+            st.success(f"✅ Ditemukan {len(results)} saham yang memenuhi kriteria")
         else:
             st.warning("Tidak ada saham yang cocok dengan pola.")
 
@@ -441,7 +514,8 @@ def show_stock_details(ticker, end_date):
         title=f"{ticker} Price Analysis",
         xaxis_title="Date",
         yaxis_title="Price",
-        xaxis_rangeslider_visible=False
+        xaxis_rangeslider_visible=False,
+        height=600
     )
     
     st.plotly_chart(fig, use_container_width=True)
@@ -452,24 +526,28 @@ def show_stock_details(ticker, end_date):
         metrics = calculate_additional_metrics(data)
         fib = metrics.get("Fibonacci", {})
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         col1.metric("MA20", f"{metrics.get('MA20', 0):.2f}")
-        col1.metric("MA50", f"{metrics.get('MA50', 0):.2f}")
-        col2.metric("RSI", f"{metrics.get('RSI', 0):.2f}")
-        col2.metric("MFI", f"{metrics.get('MFI', 0):.2f}", metrics.get('MFI_Signal', 'N/A'))
-        col3.metric("Volume", f"{metrics.get('Volume', 0):,}")
-        col3.metric("Volume Anomali", "Ya" if metrics.get('Volume_Anomali', False) else "Tidak")
+        col2.metric("MA50", f"{metrics.get('MA50', 0):.2f}")
+        col3.metric("RSI", f"{metrics.get('RSI', 0):.2f}")
+        col4.metric("MFI", f"{metrics.get('MFI', 0):.2f}", metrics.get('MFI_Signal', 'N/A'))
+        
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Volume", f"{metrics.get('Volume', 0):,}")
+        col2.metric("Volume Anomali", 
+                   "Ya" if metrics.get('Volume_Anomali', False) else "Tidak",
+                   f"{metrics.get('Anomali_Tipe', '')}")
+        col3.metric("Volume Ratio", f"{metrics.get('Volume_Ratio', 0):.2f}x")
         
         st.subheader("Level Penting")
         st.write(f"**Support:** {' | '.join([f'{s:.2f}' for s in metrics.get('Support', [])])}")
         st.write(f"**Resistance:** {' | '.join([f'{r:.2f}' for r in metrics.get('Resistance', [])])}")
         
         st.subheader("Level Fibonacci")
-        fib_cols = st.columns(4)
-        fib_cols[0].metric("Fib 0.236", f"{fib.get('Fib_0.236', 0):.2f}")
-        fib_cols[1].metric("Fib 0.382", f"{fib.get('Fib_0.382', 0):.2f}")
-        fib_cols[2].metric("Fib 0.5", f"{fib.get('Fib_0.5', 0):.2f}")
-        fib_cols[3].metric("Fib 0.618", f"{fib.get('Fib_0.618', 0):.2f}")
+        fib_cols = st.columns(7)
+        fib_levels = ['Fib_0.0', 'Fib_0.236', 'Fib_0.382', 'Fib_0.5', 'Fib_0.618', 'Fib_0.786', 'Fib_1.0']
+        for i, level in enumerate(fib_levels):
+            fib_cols[i].metric(level, f"{fib.get(level, 0):.2f}")
     except Exception as e:
         st.error(f"Gagal menampilkan indikator: {e}")
 
