@@ -39,7 +39,12 @@ def detect_volume_anomaly(df, window=20, std_multiplier=2.0, market_comparison=T
     # Deteksi anomali statistik
     statistical_anomaly = False
     if not pd.isna(df['Volume_MA'].iloc[-1]) and not pd.isna(df['Volume_STD'].iloc[-1]):
-        statistical_anomaly = df['Volume'].iloc[-1] > (df['Volume_MA'].iloc[-1] + std_multiplier * df['Volume_STD'].iloc[-1])
+        # PERBAIKAN: Ambil nilai tunggal dengan iloc[-1]
+        volume_today = df['Volume'].iloc[-1]
+        volume_ma = df['Volume_MA'].iloc[-1]
+        volume_std = df['Volume_STD'].iloc[-1]
+        
+        statistical_anomaly = volume_today > (volume_ma + std_multiplier * volume_std)
     
     # Deteksi anomali relatif terhadap pasar
     market_relative_anomaly = False
@@ -58,14 +63,19 @@ def detect_volume_anomaly(df, window=20, std_multiplier=2.0, market_comparison=T
     # Deteksi volume tinggi berkelanjutan
     sustained_anomaly = False
     if len(df) >= window + 3:
-        recent_volumes = df['Volume'].tail(3)
-        sustained_anomaly = all(recent_volumes > 1.5 * df['Volume_MA'].iloc[-1])
+        # PERBAIKAN: Ambil nilai numerik bukan Series
+        volume_ma_value = df['Volume_MA'].iloc[-1]
+        recent_volumes = df['Volume'].tail(3).values
+        sustained_anomaly = all(vol > 1.5 * volume_ma_value for vol in recent_volumes)
     
     # Klasifikasi berdasarkan pergerakan harga
     anomaly_type = "Netral"
     volume_ratio = round(df['Volume'].iloc[-1] / df['Volume_MA'].iloc[-1], 2) if not pd.isna(df['Volume_MA'].iloc[-1]) else 0
     
-    if statistical_anomaly or market_relative_anomaly or sustained_anomaly:
+    # PERBAIKAN: Gunakan nilai boolean langsung
+    is_anomaly = statistical_anomaly or market_relative_anomaly or sustained_anomaly
+    
+    if is_anomaly:
         if len(df) >= 2:
             price_change = (df['Close'].iloc[-1] - df['Close'].iloc[-2]) / df['Close'].iloc[-2]
             if abs(price_change) > 0.05:
@@ -76,7 +86,7 @@ def detect_volume_anomaly(df, window=20, std_multiplier=2.0, market_comparison=T
             anomaly_type = "Volume Tinggi"
     
     return {
-        "is_anomaly": statistical_anomaly or market_relative_anomaly or sustained_anomaly,
+        "is_anomaly": is_anomaly,
         "type": anomaly_type,
         "volume_ratio": volume_ratio,
         "market_relative": round(market_relative, 2) if market_relative is not None else None
